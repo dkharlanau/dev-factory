@@ -1,0 +1,55 @@
+# ADR 001: one local supervisor, official Codex runtime
+
+Status: implemented MVP, 2026-09-26.
+
+The small Python process owns task contracts, policy, budgets, leases, checkpoints,
+usage observations and receipts. The official `openai-codex` SDK and its matching
+CLI-bin own authentication, model/tool loops, native repository instructions,
+autocompaction and sandbox. No OpenAI API client or custom AI runtime exists here.
+
+`Runtime` uses public SDK client methods. Start/stream uses the SDK's per-turn
+subscription API; raw `turn/start` plus the global notification stream loses events
+in SDK 0.157.1. A narrow allowlisted RPC adapter handles inventory, quota, sandbox
+commands and compaction state not exposed by the high-level convenience API.
+Experimental APIs and remote WebSockets are disabled.
+
+The lifecycle is refresh → select → claim → build → validate → fresh review →
+bounded repair → ready/blocked → receipt. No separate Codex Goal controls child
+work. One flock/SQLite lease serializes all configured projects for this installation;
+there is no claim of exclusivity over other installations, humans or Codex clients.
+No TTL-only takeover is allowed. Only explicit resume can recover a dead lease.
+
+The builder has a Factory-owned Git worktree. Review uses a fresh native thread and
+an isolated copy of the actual base plus diff and untracked task files. Its workspace
+sandbox permits temporary test writes. The controller checks both snapshots for
+source changes. Review never receives builder conversation or hidden reasoning.
+
+Factory defaults preserve the native model while applying low/medium/high effort
+profiles checked against the live catalog. Model substitutions require owner config;
+no default substitution is justified by current comparative evidence. Native baseline
+omits both model and effort overrides. Both benchmark variants use identical tools,
+acceptance, tests and starting commit, with separate worktrees/threads and no solution
+or receipt sharing.
+
+Current repository/GitHub data is task authority. An optional `factory-task` JSON
+contract in an existing issue/backlog makes acceptance and file scope deterministic;
+it is not a second backlog. Arbitrary prose is handed to native Codex for selection.
+No classifier model is required in this MVP. Named validation commands come exclusively
+from owner configuration, never issues or model output. Untrusted task input uses the
+SDK's supported tool-output authority (`ExternalMessage` wire representation).
+
+Remote integration is off. The opt-in adapter supports draft PR creation with
+read-before-retry reconciliation; it has only offline/simulated GitHub write tests.
+MVP code refuses automatic merge/deploy. The parent skill attaches any resulting PR
+with the native Codex tool. CI unknown/not-started never becomes PASS.
+
+Stored metadata includes repository/task IDs, SHAs, named command results, usage,
+selection reasons, review outcomes and operational checkpoints. Native Codex retains
+its own sessions through normal authentication; Factory does not copy conversations,
+reasoning, credentials or auth files. Local logs hold redacted validation output,
+not raw model/tool transcripts. Redaction is defense in depth, not a universal PII detector.
+
+Foreground operation is deliberate. Sleep or process death does not promise progress.
+SIGINT/pause requests interruption, writes a checkpoint and preserves work. Resume
+reconciles current task authority, config, native turn, base, branch, file fingerprint
+and (before integration) remote branch/PR state.

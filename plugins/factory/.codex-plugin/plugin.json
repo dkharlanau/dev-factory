@@ -1,0 +1,18 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "description": "Bounded local Codex development control and verifiable receipts.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Factory",
+    "shortDescription": "Use Factory in Codex.",
+    "longDescription": "Run local diagnostics, plan current project work, supervise one bounded worker and inspect receipts.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use $factory doctor to check the local DevFactory installation."
+  }
+}

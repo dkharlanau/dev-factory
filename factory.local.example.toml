@@ -1,0 +1,31 @@
+# Copy to ignored factory.local.toml. Never put credentials in this file.
+[projects.vedokrok]
+path = "/replace/with/verified/website/root"
+allow_gh = true
+final_checks = ["build", "unit", "sites", "deploy-check"]
+[projects.vedokrok.checks]
+build = ["npm", "run", "build"]
+unit = ["npm", "test"]
+sites = ["npm", "run", "test:sites"]
+deploy-check = ["npm", "run", "deploy:check"]
+
+[projects.ptichi-site]
+path = "/replace/with/verified/ptichi-site/root"
+allow_gh = true
+final_checks = ["check"]
+[projects.ptichi-site.checks]
+check = ["npm", "run", "check"]
+
+[projects.voice-lab]
+path = "/replace/with/verified/voice-lab/root"
+allow_gh = true
+# Resolve current main-only branch authority before execution.
+final_checks = ["check"]
+[projects.voice-lab.checks]
+check = ["npm", "run", "check"]
+native = ["npm", "run", "desktop:build", "--", "--no-bundle"]
+
+# Optional explicit model mapping, only after comparison/owner review:
+# [profiles.fast]
+# model = "<an actually available model ID>"
+# effort = "low"

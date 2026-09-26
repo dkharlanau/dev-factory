@@ -1,0 +1,60 @@
+policy_version = "1"
+
+[budget]
+deadline_seconds = 1800
+max_turns = 6
+soft_tokens = 150000
+repair_rounds = 2
+escalations = 1
+allowance_reserve_percent = 10
+quota_bucket = "codex"
+unknown_quota = "pause"
+
+[context]
+manual_compaction = false
+native_autocompaction = true
+
+[integration]
+push = false
+pull_request = false
+merge = false
+deploy = false
+
+# Preserve native model until comparative evidence supports substitutions.
+# Explicit owner mappings are checked against the live catalog.
+[profiles.fast]
+model = "native"
+effort = "low"
+[profiles.standard]
+model = "native"
+effort = "medium"
+[profiles.deep]
+model = "native"
+effort = "high"
+[profiles.review]
+model = "native"
+effort = "medium"
+
+[projects.vedokrok]
+repository = "dkharlanau/vedokrok"
+instructions = ["AGENTS.md", "CHATGPT.md", "CONTRIBUTING.md"]
+backlogs = ["CHATGPT.md", "BACKLOG.md", "docs/CURRENT_LOOP.md"]
+boundary = "Public website; MHC authoring data is never publication authority."
+allowed_modes = ["plan", "worktree"]
+high_risk_paths = ["worker/", "schema/", "migrations/", "agent-plugin/"]
+
+[projects.ptichi-site]
+repository = "dkharlanau/ptichi-site"
+instructions = ["AGENTS.md", "docs/CURRENT_LOOP.md"]
+backlogs = ["docs/CURRENT_LOOP.md"]
+boundary = "Website only. Do not invent recorder, installer, microphone or desktop availability."
+allowed_modes = ["plan", "worktree"]
+high_risk_paths = ["data/product-release.json", "data/site-purpose.json"]
+
+[projects.voice-lab]
+repository = "dkharlanau/voice-lab"
+instructions = ["AGENTS.md", "REPO_MAP.md", "docs/CURRENT_PRODUCT_LOOP.md"]
+backlogs = ["docs/CURRENT_PRODUCT_LOOP.md", "BACKLOG.md"]
+boundary = "Desktop/runtime; fixtures do not prove microphone, OS, user or listener evidence."
+allowed_modes = ["plan", "worktree"]
+high_risk_paths = ["crates/", "release/", "packages/contracts/", "src-tauri/"]

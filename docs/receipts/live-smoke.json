@@ -1,0 +1,107 @@
+{
+  "date": "2026-09-26",
+  "kind": "real Codex, synthetic repository; no production modifications",
+  "versions": {
+    "macOS": "27.2 (26B5091g)",
+    "architecture": "arm64",
+    "python": "3.11.16",
+    "desktop_app": "26.924.22138 (11645)",
+    "desktop_cli": "0.158.0-alpha.2.1",
+    "sdk": "0.157.1",
+    "sdk_runtime": "0.157.1",
+    "git": "2.54.0 (Apple Git-157)",
+    "gh": "2.97.0"
+  },
+  "first_capability_smoke": {
+    "model_requests": 3,
+    "builder_completed_after_reconciliation": true,
+    "resume_same_thread": true,
+    "review": "PASS",
+    "compaction": "COMPLETED",
+    "tests_after_compaction_exit": 0,
+    "usage_complete": false,
+    "review_usage_only": {
+      "cacheWriteInputTokens": 0,
+      "cachedInputTokens": 38400,
+      "inputTokens": 50622,
+      "outputTokens": 115,
+      "reasoningOutputTokens": 0,
+      "totalTokens": 50737
+    },
+    "controller_failure": "Initial global event subscription lost turn events; recovered via public SDK per-turn subscription. No repeated builder."
+  },
+  "bounded_loop": {
+    "run_id": "08d4af324abc49fb",
+    "disposition": "READY_LOCAL",
+    "model_requests": 3,
+    "selected_models": [
+      {
+        "profile": "fast",
+        "requested_model": "gpt-6-astra",
+        "effort": "low",
+        "effective_model": null,
+        "role": "build"
+      },
+      {
+        "profile": "review",
+        "requested_model": "gpt-6-astra",
+        "effort": "medium",
+        "effective_model": null,
+        "role": "review"
+      },
+      {
+        "profile": "review",
+        "requested_model": "gpt-6-astra",
+        "effort": "medium",
+        "effective_model": null,
+        "role": "review"
+      }
+    ],
+    "validation_exit_codes": [
+      0
+    ],
+    "review": "PASS",
+    "review_summary": "Only clamp.py changed; tests are preserved. The implementation satisfies inclusive clamping and raises ValueError for inverted bounds. All 5 unit tests passed independently.",
+    "usage_including_failed_review": {
+      "inputTokens": 193742,
+      "cachedInputTokens": 137728,
+      "outputTokens": 1037,
+      "reasoningOutputTokens": 36,
+      "cacheWriteInputTokens": 0,
+      "totalTokens": 194779
+    },
+    "soft_token_budget": 150000,
+    "soft_budget_overshoot": 44779,
+    "wall_seconds": 228.62160897254944,
+    "operator_resumes": 1,
+    "human_interventions": 0,
+    "metric_correction": "The first raw receipt counted an agent-issued resume as one human intervention. This was corrected to unknown-on-resume in implementation; no extra human input occurred in this test.",
+    "repeat_result": "EXISTING_COMPLETION",
+    "fresh_thread_review": true
+  },
+  "interruption": {
+    "immediate_probe": "Completed raced interruption; not proof of active cancellation",
+    "active_command_observed": true,
+    "status": "interrupted",
+    "model_requests": 2,
+    "usage_complete": false
+  },
+  "setup_model_requests_total": 8,
+  "parent_chat_usage": null,
+  "subscription_delta_attribution": null,
+  "live_benchmark_run": false,
+  "efficiency_claim": null,
+  "local_evidence": {
+    "skill-discovery.json": "355c47b3d0dc0e0f9a82325c02049e8f2bb6fae5e0e698d5faae8d7a17d78cbc",
+    "e2e-repeat-final.json": "dcda42a39b8d5376980231d549151dcd5c770fc870fc4fb0ca5ec9693d7c5d22",
+    "interrupt-active-smoke.json": "d8c98354b11fc4c0aff408644b31ee602f123095541d1edc89322c40ae9ec251",
+    "e2e-live-resumed.json": "51203ff4c9f814c533391e6ab43fe5daf7dfc95c5f1c92ed1a199618afb8eaff",
+    "first-live-smoke.json": "5931e91921ad1878d9406d9fb30f10348691977fa427811b2b749b43f5ac0fbe"
+  },
+  "offline_tests": {
+    "passed": 86,
+    "real_models": false
+  },
+  "plugin_manifest_validator": "passed",
+  "skill_validator": "passed"
+}

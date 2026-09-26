@@ -1,0 +1,6 @@
+#!/bin/sh
+# Foreground launch only. No sandbox override and no global configuration edits.
+FACTORY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export FACTORY_ROOT
+export PYTHONPATH="$FACTORY_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$FACTORY_ROOT/.venv/bin/python" -m devfactory.cli "$@"
