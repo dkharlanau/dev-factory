@@ -141,9 +141,9 @@ high-risk review, or review after a repair/escalation → GPT-6 Astra/high. Thes
 routing defaults, not a claim of measured savings, and unavailable models fall through
 the live-verified ladder.
 
-One worker, six turns, 30-minute foreground deadline, 500,000 observable-token
-**soft queue envelope**, two repair rounds, one escalation and 10% allowance reserve
-are starting defaults. With `finish_started_task=true`, the soft token envelope stops
+One worker, up to six turns **per task**, up to 60 turns per foreground queue,
+a 30-minute queue deadline, 500,000 observable-token **soft queue envelope**, two
+repair rounds, one escalation and 10% allowance reserve are starting defaults. With `finish_started_task=true`, the soft token envelope stops
 additional queue work but does not strand an already-started task before its bounded
 review/repair gate. Deadline, turn count and quota remain hard dispatch gates. Repair
 turns reuse the builder thread and send delta evidence rather than replaying the full
@@ -169,13 +169,13 @@ still unverified. The parent skill attaches any created PR.
 
 ```sh
 ./factory benchmark          # offline, zero model turns
-./factory benchmark --live   # synthetic effort-profile comparison inside Factory
+./factory benchmark --live   # synthetic model/effort routing comparison inside Factory
 .venv/bin/python scripts/evaluation/run.py  # prepare real task snapshots, zero model turns
 .venv/bin/python scripts/evaluation/run.py --live --case small --variant native
 .venv/bin/python scripts/evaluation/run.py --live --case small --variant factory
 ```
 
-The old live fixture command runs Factory in both arms and compares effort policy.
+The live fixture command runs Factory in both arms and compares model/effort routing.
 The separate evaluation harness uses direct SDK execution for the native baseline,
 with identical pairwise source/spec/checks and isolated histories. Five pairs have
 run; completed-work cost savings are unproven. Read the [results and limitations](docs/benchmarks/RESULTS.md)

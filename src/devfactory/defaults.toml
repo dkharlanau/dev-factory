@@ -3,6 +3,7 @@ policy_version = "2"
 [budget]
 deadline_seconds = 1800
 max_turns = 6
+max_queue_turns = 60
 soft_tokens = 500000
 finish_started_task = true
 repair_rounds = 2

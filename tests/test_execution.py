@@ -202,6 +202,9 @@ def test_queue_two_independent_tasks(cfg):
     with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
     git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    # Turn limits are per task; the queue has its own aggregate turn ceiling.
+    cfg['budget']['max_turns']=2
+    cfg['budget']['max_queue_turns']=4
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         results=runner.run('demo',max_tasks=2)

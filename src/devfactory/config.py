@@ -34,7 +34,10 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "Automatic merge/deploy unavailable in MVP")
     b = config["budget"]
     if not 0 < b["allowance_reserve_percent"] < 100 or not 1 <= b["max_turns"] <= 20:
-        raise Stop("BLOCKED_POLICY", "Invalid reserve or turn budget")
+        raise Stop("BLOCKED_POLICY", "Invalid reserve or per-task turn budget")
+    queue_turns = b.get("max_queue_turns", b["max_turns"])
+    if not b["max_turns"] <= queue_turns <= 100:
+        raise Stop("BLOCKED_POLICY", "Queue turn budget must be >= per-task turns and <= 100")
     if not 0 <= b["repair_rounds"] <= 2 or not 0 <= b["escalations"] <= 1:
         raise Stop("BLOCKED_POLICY", "MVP permits at most two repairs and one escalation")
     if b["deadline_seconds"] <= 0 or b["soft_tokens"] <= 0:

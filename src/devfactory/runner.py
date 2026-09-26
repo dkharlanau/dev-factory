@@ -129,7 +129,7 @@ class Runner:
         self.config['_completed_keys']=[]
         outcomes = []
         queue_started = time.time()
-        remaining_turns = self.config['budget']['max_turns']
+        remaining_turns = self.config['budget'].get('max_queue_turns', self.config['budget']['max_turns'])
         remaining_tokens = self.config['budget']['soft_tokens']
         for _ in range(max_tasks):
             plan = self.planner(self.config,project,mutate=True)
@@ -149,6 +149,7 @@ class Runner:
                 else:
                     outcomes.append({'state':'RESUME_REQUIRED','run_id':previous['id']})
                 break
+            task_turns = min(self.config['budget']['max_turns'], remaining_turns)
             data = {'project':project,'task_id':plan['task']['id'],'contract_hash':plan['contract_hash'],
                     'task_source':plan['task']['source'],'task_category':plan['task'].get('category','unknown'),
                     'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
@@ -158,7 +159,7 @@ class Runner:
                     'escalations':0,'routing_upgrades':0,'usage_threads':{},'started_at':time.time(),
                     'active_execution_seconds':0,'active_execution_complete':False,
                     'deadline':queue_started+self.config['budget']['deadline_seconds'],
-                    'remaining_turns':remaining_turns,'remaining_tokens':remaining_tokens,
+                    'remaining_turns':task_turns,'remaining_tokens':remaining_tokens,
                     'human_interventions':0,'acceptance':None,'review':None,'parent_chat_usage':None,
                     'compaction_usage':None,'active_context_occupation':None,
                     'allowance_attribution':'Shared account; changes are not attributable to Factory alone'}
