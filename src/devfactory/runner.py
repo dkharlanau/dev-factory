@@ -115,7 +115,7 @@ class Runner:
                     'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
                     'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
                     'escalations':0,'usage_threads':{},'started_at':time.time(),
-                    'active_execution_seconds':0,'active_execution_complete':True,
+                    'active_execution_seconds':0,'active_execution_complete':False,
                     'deadline':queue_started+self.config['budget']['deadline_seconds'],
                     'remaining_turns':remaining_turns,'remaining_tokens':remaining_tokens,
                     'human_interventions':0,'acceptance':None,'review':None,'parent_chat_usage':None,
@@ -181,7 +181,7 @@ class Runner:
         usage=Usage(d['usage_threads'])
         execution_started=time.monotonic()
         active_before=d.get('active_execution_seconds',0)
-        d.setdefault('active_execution_complete',False)
+        d['active_execution_complete']=False
         old_signal=signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT,lambda *_: setattr(self,'interrupted',True))
         def paused(): return self.interrupted or self.store.paused(rid)
@@ -197,6 +197,7 @@ class Runner:
             self.store.heartbeat(rid,wt)
         def checkpoint(state,reason):
             d['reason']=reason
+            d['active_execution_complete']=state in TERMINAL
             if wt.exists():
                 d['checkpoint_fingerprint']=fingerprint(wt,d['base_sha'])
                 d['head_sha']=git(wt,'rev-parse','HEAD')
