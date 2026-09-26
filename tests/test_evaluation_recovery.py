@@ -72,6 +72,8 @@ def test_receipt_active_time_excludes_pause_and_keeps_role_metrics(cfg):
     r=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         first=r.run('demo')[0]
+        assert first['state']=='PAUSED'
+        assert first['data']['active_execution_complete'] is False
         data=first['data'];data['started_at']-=3600 # simulated offline hour, no real waiting
         r.store.save(first['id'],first['state'],data)
         FakeRuntime.interrupt=False
