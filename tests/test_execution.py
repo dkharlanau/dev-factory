@@ -62,6 +62,20 @@ def test_soft_token_envelope_does_not_skip_mandatory_review(cfg):
     finally: runner.close()
 
 
+def test_deep_task_keeps_deep_independent_review(cfg):
+    repo=Path(cfg['projects']['demo']['path']);p=repo/'BACKLOG.md'
+    p.write_text(p.read_text().replace('"complexity": "low"','"complexity": "high"'))
+    git(repo,'add','BACKLOG.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Deep task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        assert [h['profile'] for h in FakeRuntime.history]==['deep','deep']
+    finally: runner.close()
+
+
 def test_focused_failure_skips_broad_final_checks(cfg):
     broad=['python','-c','print("broad")']
     cfg['projects']['demo']['checks']['broad']=broad

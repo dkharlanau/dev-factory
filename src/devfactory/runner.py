@@ -280,7 +280,8 @@ class Runner:
                         check_budget(budget,deadline=d['deadline'],turns=len(d['turns']),tokens=token_gate)
                         q=rt.quota(); check_quota(q,budget); d['quota_last']=q
                         review=phase=='review'
-                        route_profile=('deep' if review and (d['risk']=='high' or d['repairs'] or d['escalations'])
+                        route_profile=('deep' if review and (d['profile']=='deep' or d['risk']=='high' or
+                                                               d['repairs'] or d['escalations'])
                                        else ('review' if review else d['profile']))
                         selection=choose_model(route_profile,self.config,rt.catalog,rt.native,
                                                baseline=d['baseline'],high_risk=d['risk']=='high')
