@@ -1,8 +1,10 @@
 # Supported subset and limitations
 
-- Native/default model mappings are preserved. Five paired tasks show mixed token
-  overhead and lower sampled elapsed time, confounded with effort. No general quality,
-  context or subscription-efficiency advantage has been established.
+- The five paired tasks measured the earlier native-preserving/150k policy, not policy
+  v2. Policy v2 now uses Luna/Sol/Astra live-catalog ladders, delta repair packets,
+  staged validation and a finish-started-task quality gate. These changes reduce
+  deterministic controller overhead, but no general subscription-efficiency claim is
+  made until a new paired live evaluation is run.
 - Real worker/edit/test/fresh-review/resume/manual-compaction tests passed on the pinned
   Mac environment. Primary evaluation requested Astra low/medium/high and native xhigh;
   separate lifecycle/recovery probes requested Luna low/medium/high. Not every catalog model was exercised.

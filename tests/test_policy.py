@@ -12,6 +12,12 @@ def test_unavailable_model_and_effort(cfg):
     assert s.requested_model=='fixture-model' and s.requested_effort=='medium'
     assert 'unavailable' in s.reason
 
+def test_model_ladder_uses_first_available_candidate(cfg):
+    cfg['profiles']['fast']={'models':['missing','fixture-model','native'],'effort':'low'}
+    s=choose_model('fast',cfg,CATALOG,{'model':'fixture-model'})
+    assert s.requested_model=='fixture-model' and s.requested_effort=='low'
+    assert 'first available' in s.reason
+
 def test_native_baseline_keeps_effort(cfg):
     s=choose_model('fast',cfg,CATALOG,{'model':'fixture-model'},baseline=True)
     assert s.requested_model is None and s.requested_effort is None

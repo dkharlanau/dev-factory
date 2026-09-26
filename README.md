@@ -5,11 +5,13 @@ verified model/effort profiles, runs one bounded task at a time, preserves work,
 and leaves inspectable test, review and usage receipts. Models run remotely;
 Git, builds, tests and the supervisor run on your Mac.
 
-**Evaluated control layer, not a proven efficiency improvement.** Five paired real
-historical tasks passed behavioral checks in both workflows; current Factory budgets
-allowed 2/5 complete reviewed cycles versus 5/5 direct native cycles. See the
-[evaluation](docs/benchmarks/RESULTS.md). Native model mappings and autocompaction
-remain the defaults. Product execution requires an explicit command.
+**Evaluated control layer, with a new cost-aware routing policy that still requires
+live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
+the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
+Version 2 keeps native autocompaction, uses live-catalog model ladders, delta repair
+packets and staged validation, and lets a started task finish its bounded quality gate.
+See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
+explicit command.
 
 ## Install and check
 
@@ -129,21 +131,33 @@ fallback for the controller. No functioning route means a precise blocker.
 
 Defaults are in `src/devfactory/defaults.toml`; ignored local config can override
 profile models/efforts, named checks, reserves and execution limits. Every model
-mapping is validated against the live catalog. Unsupported effort falls back to
-the catalog default; unavailable model falls back to verified native/default.
+candidate is validated against the live catalog. Unsupported effort falls back to
+the catalog default; an unavailable ladder falls back to verified native/default.
 Unknown quota pauses. Shared quota exhaustion never triggers model switching.
 
-One worker, six turns, 30-minute foreground deadline, 150,000 observable-token
-**soft** budget, two repair rounds, one escalation and 10% allowance reserve are
-starting defaults. There is no hard in-flight token cap. A turn can overshoot the
-soft budget; Factory stops issuing subsequent turns. Current context utilization,
-serving model without telemetry, and parent-chat usage are reported as unknown.
-Receipts include per-turn/check durations, active execution seconds excluding pauses,
-packet/instruction byte counts and soft-budget overshoot. Byte counts are not tokens.
-Missing intervening usage keeps per-role attribution unknown. Automatic Factory
-early compaction is unsupported: `context.manual_compaction=true` is rejected.
-The explicit manual adapter is available for controlled diagnostics; native
-autocompaction remains the execution policy.
+The default quality/cost ladder is: low-risk strongly verified work → GPT-6 Luna/low;
+ordinary work and clean independent review → GPT-6 Sol/medium; high-complexity work,
+high-risk review, or review after a repair/escalation → GPT-6 Astra/high. These are
+routing defaults, not a claim of measured savings, and unavailable models fall through
+the live-verified ladder.
+
+One worker, six turns, 30-minute foreground deadline, 500,000 observable-token
+**soft queue envelope**, two repair rounds, one escalation and 10% allowance reserve
+are starting defaults. With `finish_started_task=true`, the soft token envelope stops
+additional queue work but does not strand an already-started task before its bounded
+review/repair gate. Deadline, turn count and quota remain hard dispatch gates. Repair
+turns reuse the builder thread and send delta evidence rather than replaying the full
+contract; packets use compact JSON. Focused checks run before broad final checks, so a
+known focused failure does not spend time on the final suite.
+
+Current context utilization, serving model without telemetry, and parent-chat usage
+are reported as unknown. Receipts include per-turn/check durations, active execution
+seconds excluding pauses, packet/instruction byte counts, estimated repeated packet
+bytes avoided, cached-input ratio when observable, and soft-budget overshoot. Byte
+counts are not tokens and cached input is not zero-cost. Missing intervening usage
+keeps per-role attribution unknown. Automatic Factory early compaction is unsupported:
+`context.manual_compaction=true` is rejected. The explicit manual adapter is available
+for controlled diagnostics; native autocompaction remains the execution policy.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction

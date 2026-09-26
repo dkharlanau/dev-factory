@@ -22,7 +22,9 @@ class FakeRuntime:
     def inventory(self): return {'versions':{'runtime':'FAKE'}}
     def start(self,cwd,selection,instructions,read_only=False,resume=None):
         tid=resume or 'thread-'+str(len(self.history)+1)
-        self.history.append({'id':tid,'read_only':read_only,'resume':resume,'instructions':instructions})
+        self.history.append({'id':tid,'read_only':read_only,'resume':resume,'instructions':instructions,
+                             'profile':selection.profile,'requested_model':selection.requested_model,
+                             'requested_effort':selection.requested_effort})
         return tid
     def turn(self,tid,text,selection,*,on_start,on_event,**kwargs):
         packet=json.loads(text); role=packet['role']

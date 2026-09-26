@@ -5,7 +5,8 @@ import re
 import signal
 import time
 from pathlib import Path
-from .policy import (Stop, Usage, choose_model, check_quota, check_budget, repair_decision, integration_gate, classify)
+from .policy import (Stop, Usage, choose_model, check_quota, check_budget, repair_decision, integration_gate, classify,
+                     usage_efficiency)
 from .repository import (snapshot, git, create_worktree, changed, fingerprint, commit_owned, GitHub, review_snapshot, trigger_snapshot)
 from .runtime import Runtime
 from .state import Store, digest, atomic_json, TERMINAL
@@ -71,6 +72,36 @@ def role_usage(turns):
         else:groups[role]={k:groups[role][k]+values[k] if groups[role][k] is not None and values[k] is not None else None for k in TOKEN_FIELDS}
         previous[tid]={k:current.get(k) for k in TOKEN_FIELDS}
     return groups
+
+
+def validation_summary(tests):
+    """Latest outcome per named check; omit log paths/fingerprints from model context."""
+    latest = {}
+    for item in tests:
+        latest[item['check']] = {'check': item['check'], 'stage': item.get('stage'),
+                                 'exit_code': item.get('exit_code')}
+    return list(latest.values())
+
+
+def packet_for_phase(plan, d, phase, adapter, wt):
+    task = {k:v for k,v in plan['task'].items() if k != 'source'}
+    full = {'task': task, 'base_sha': d['base_sha'], 'role': phase,
+            'instruction_files': [x['path'] for x in plan['authority']],
+            'project_boundary': adapter.get('boundary'),
+            'validation': validation_summary(d['tests']),
+            'concrete_findings': d.get('findings', [])}
+    if phase == 'review':
+        full['diff_command'] = ['git', 'diff', d['base_sha']]
+    full_text = json.dumps(full, separators=(',', ':'), ensure_ascii=False)
+    if phase != 'repair':
+        return full_text, 'full', 0
+    delta = {'task_id': plan['task']['id'], 'role': 'repair',
+             'acceptance': plan['task']['acceptance'],
+             'changed_files': changed(wt, d['base_sha']),
+             'validation': validation_summary(d['tests']),
+             'concrete_findings': d.get('findings', [])}
+    delta_text = json.dumps(delta, separators=(',', ':'), ensure_ascii=False)
+    return delta_text, 'delta', max(0, len(full_text.encode()) - len(delta_text.encode()))
 
 
 class Runner:
@@ -193,6 +224,11 @@ class Runner:
             observed=d['usage'].get('totalTokens')
             d['soft_budget_overshoot_tokens']=max(0,observed-d['remaining_tokens']) if observed is not None else None
             d['usage_by_role']=role_usage(d['turns'])
+            d['efficiency']=usage_efficiency(d['usage'])
+            d['efficiency'].update({
+                'packet_utf8_bytes':sum(t.get('packet_utf8_bytes',0) for t in d['turns']),
+                'packet_utf8_bytes_avoided':sum(t.get('packet_utf8_bytes_avoided',0) for t in d['turns'])
+            })
             self.store.save(rid,state,d)
             self.store.heartbeat(rid,wt)
         def checkpoint(state,reason):
@@ -237,10 +273,16 @@ class Runner:
                     phase=d['phase']; save(phase.upper()); self.emit(f'{rid} {phase.upper()}')
                     if phase in ('build','repair','review'):
                         budget=dict(self.config['budget'],max_turns=d['remaining_turns'],soft_tokens=d['remaining_tokens'])
-                        check_budget(budget,deadline=d['deadline'],turns=len(d['turns']),tokens=usage.aggregate()['totalTokens'])
+                        observed_tokens=usage.aggregate()['totalTokens']
+                        token_gate=observed_tokens
+                        if self.config['budget'].get('finish_started_task') and d['turns']:
+                            token_gate=None
+                        check_budget(budget,deadline=d['deadline'],turns=len(d['turns']),tokens=token_gate)
                         q=rt.quota(); check_quota(q,budget); d['quota_last']=q
                         review=phase=='review'
-                        selection=choose_model('review' if review else d['profile'],self.config,rt.catalog,rt.native,
+                        route_profile=('deep' if review and (d['risk']=='high' or d['repairs'] or d['escalations'])
+                                       else ('review' if review else d['profile']))
+                        selection=choose_model(route_profile,self.config,rt.catalog,rt.native,
                                                baseline=d['baseline'],high_risk=d['risk']=='high')
                         instructions=WORKER_RULES+('\nRole: independently review actual diff, source, acceptance and tests. Do not edit.\n' if review else '\nRole: implement the smallest complete slice, only within permitted paths; do not commit.\n')
                         review_cwd = review_snapshot(wt, logdir/f'review-{len(d["turns"])+1}', d['base_sha']) if review else wt
@@ -262,16 +304,13 @@ class Runner:
                         def event(m,p):
                             if m=='thread/tokenUsage/updated':
                                 usage.observe(p['threadId'],p['tokenUsage']); save(phase.upper())
-                        packet={'task':{k:v for k,v in plan['task'].items() if k!='source'},
-                                'base_sha':d['base_sha'],'role':phase,
-                                'instruction_files':[x['path'] for x in plan['authority']],
-                                'project_boundary':adapter.get('boundary'),'test_receipts':d['tests'],
-                                'concrete_findings':d.get('findings',[])}
-                        # Reviewer never receives builder response/history, only contract and facts.
-                        if review: packet['diff_command']=['git','diff',d['base_sha']]
+                        # Reviewer never receives builder response/history. Repair reuses the
+                        # builder thread and receives only delta evidence.
+                        packet_text,packet_mode,avoided=packet_for_phase(plan,d,phase,adapter,wt)
                         self.emit(f'Child worker: {selection.requested_model or "native/default"} / {selection.requested_effort or "native"}; parent chat model unchanged')
-                        packet_text=json.dumps(packet)
+                        record['packet_mode']=packet_mode
                         record['packet_utf8_bytes']=len(packet_text.encode())
+                        record['packet_utf8_bytes_avoided']=avoided
                         record['instruction_utf8_bytes']=len(instructions.encode())
                         turn_started=time.monotonic()
                         try:
@@ -321,27 +360,33 @@ class Runner:
                         validate_scope(wt,d['base_sha'],plan['task']['paths'])
                         if (self.config['integration']['push'] or self.config['integration']['pull_request']) and git(wt,'status','--porcelain'):
                             commit_owned(wt,d['base_sha'],plan['task']['paths'])
-                        names=list(dict.fromkeys(plan['task']['checks']+adapter['final_checks']))
-                        failed=[]
-                        for name in names:
-                            argv=adapter['checks'][name]
-                            before_test=fingerprint(wt,d['base_sha'])
-                            test_started=time.monotonic()
-                            result=rt.command(wt,argv,timeout=min(600,max(1,d['deadline']-time.time())),should_pause=paused)
-                            test_seconds=time.monotonic()-test_started
-                            log=logdir/f'test-{len(d["tests"])+1}.log'
-                            log.write_text(redact(result.get('stdout','')+'\n'+result.get('stderr','')))
-                            log.chmod(0o600)
-                            receipt={'check':name,'argv':argv,'exit_code':result.get('exitCode'),'log':str(log),
-                                     'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds}
-                            d['tests'].append(receipt); save('VALIDATE')
-                            if fingerprint(wt,d['base_sha']) != before_test:
-                                raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')
-                            if result.get('exitCode')!=0: failed.append(name)
+                        focused=list(dict.fromkeys(plan['task']['checks']))
+                        final=[n for n in dict.fromkeys(adapter['final_checks']) if n not in focused]
+                        failed=[]; failed_receipts=[]
+                        for stage,names in (('focused',focused),('final',final)):
+                            if not names: continue
+                            stage_receipts=[]
+                            for name in names:
+                                argv=adapter['checks'][name]
+                                before_test=fingerprint(wt,d['base_sha'])
+                                test_started=time.monotonic()
+                                result=rt.command(wt,argv,timeout=min(600,max(1,d['deadline']-time.time())),should_pause=paused)
+                                test_seconds=time.monotonic()-test_started
+                                log=logdir/f'test-{len(d["tests"])+1}.log'
+                                log.write_text(redact(result.get('stdout','')+'\n'+result.get('stderr','')))
+                                log.chmod(0o600)
+                                receipt={'check':name,'stage':stage,'argv':argv,'exit_code':result.get('exitCode'),'log':str(log),
+                                         'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds}
+                                d['tests'].append(receipt); stage_receipts.append(receipt); save('VALIDATE')
+                                if fingerprint(wt,d['base_sha']) != before_test:
+                                    raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')
+                                if result.get('exitCode')!=0: failed.append(name)
+                            if failed:
+                                failed_receipts=stage_receipts
+                                break
                         if failed:
                             d['findings']=[{'file':'','line':0,'summary':'Configured validation failed: '+', '.join(failed)}]
-                            # Failed environment setup cannot be solved by an automatic model upgrade.
-                            if any(t['exit_code'] in (126,127) for t in d['tests'][-len(names):]):
+                            if any(t['exit_code'] in (126,127) for t in failed_receipts):
                                 raise Stop('BLOCKED_INFRASTRUCTURE','Validation executable unavailable')
                             self._repair(d)
                         else:

@@ -25,7 +25,7 @@ final_checks = ["check"]
 check = ["npm", "run", "check"]
 native = ["npm", "run", "desktop:build", "--", "--no-bundle"]
 
-# Optional explicit model mapping, only after comparison/owner review:
+# Optional routing override. Entries are tried in order and verified against the live catalog:
 # [profiles.fast]
-# model = "<an actually available model ID>"
+# models = ["gpt-6-luna", "gpt-6-sol", "native"]
 # effort = "low"

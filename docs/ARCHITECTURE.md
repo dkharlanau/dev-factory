@@ -24,12 +24,21 @@ an isolated copy of the actual base plus diff and untracked task files. Its work
 sandbox permits temporary test writes. The controller checks both snapshots for
 source changes. Review never receives builder conversation or hidden reasoning.
 
-Factory defaults preserve the native model while applying low/medium/high effort
-profiles checked against the live catalog. Model substitutions require owner config;
-no default substitution is justified by current comparative evidence. Native baseline
-omits both model and effort overrides. Both benchmark variants use identical tools,
-acceptance, tests and starting commit, with separate worktrees/threads and no solution
-or receipt sharing.
+Factory policy v2 routes by task/role through a live-catalog ladder: Luna/low for
+strongly verified low-risk work, Sol/medium for ordinary work and clean review, and
+Astra/high for deep work plus high-risk or post-repair review. Unavailable candidates
+fall through to the next verified entry and ultimately native/default; quota pressure
+never causes a model switch. Repeated implementation failure may escalate the builder
+to the deep profile. Native baseline still omits both model and effort overrides.
+Both benchmark variants use identical tools, acceptance, tests and starting commit,
+with separate worktrees/threads and no solution or receipt sharing.
+
+Builder repair turns stay in the same native thread and receive only delta evidence;
+fresh reviewers receive the full bounded contract plus summarized check outcomes and
+inspect the diff themselves. This preserves a stable prompt prefix and avoids replaying
+log paths, fingerprints and the whole contract on every repair. Deterministic
+validation is staged: focused task checks first, broad final checks only after the
+focused stage passes.
 
 Current repository/GitHub data is task authority. An optional `factory-task` JSON
 contract in an existing issue/backlog makes acceptance and file scope deterministic;

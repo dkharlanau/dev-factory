@@ -32,6 +32,13 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "MVP permits at most two repairs and one escalation")
     if b["deadline_seconds"] <= 0 or b["soft_tokens"] <= 0:
         raise Stop("BLOCKED_POLICY", "Execution limits must be positive")
+    if not isinstance(b.get("finish_started_task"), bool):
+        raise Stop("BLOCKED_POLICY", "finish_started_task must be boolean")
+    for name, profile in config["profiles"].items():
+        models = profile.get("models")
+        if models is not None and (not isinstance(models, list) or not models or
+                                   not all(isinstance(m, str) and m for m in models)):
+            raise Stop("BLOCKED_POLICY", f"Profile {name} has invalid model ladder")
     if b.get("unknown_quota") != "pause" or not config["context"]["native_autocompaction"]:
         raise Stop("BLOCKED_POLICY", "Unknown quota must pause; native autocompaction remains enabled")
     if config["context"].get("manual_compaction"):

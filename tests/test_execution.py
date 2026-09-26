@@ -31,6 +31,37 @@ def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
     finally:runner.close()
 
 
+def test_repair_uses_delta_packet_and_stronger_review(cfg):
+    FakeRuntime.outcomes=[
+        {'verdict':'PASS','findings':[],'summary':'build'},
+        {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
+        {'verdict':'PASS','findings':[],'summary':'repaired'},
+        {'verdict':'PASS','findings':[],'summary':'reviewed'},
+    ]
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        build=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')['packet']
+        repair=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')['packet']
+        assert 'task' in build and 'task' not in repair and repair['task_id']=='clamp-v1'
+        assert len(json.dumps(repair,separators=(',',':'))) < len(json.dumps(build,separators=(',',':')))
+        assert FakeRuntime.history[-1]['profile']=='deep'
+        assert r['data']['efficiency']['packet_utf8_bytes_avoided'] > 0
+    finally: runner.close()
+
+
+def test_soft_token_envelope_does_not_skip_mandatory_review(cfg):
+    cfg['budget']['soft_tokens']=1
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        assert r['data']['soft_budget_overshoot_tokens'] > 0
+        assert any(t['role']=='review' for t in r['data']['turns'])
+    finally: runner.close()
+
+
 def test_repair_limit(cfg):
     FakeRuntime.fail_tests=True
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
