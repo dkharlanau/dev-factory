@@ -1,0 +1,2935 @@
+{
+  "cost_efficiency": "unknown",
+  "date": "2026-09-26",
+  "effective_model_observability": "unknown absent actual serving/reroute telemetry",
+  "experiments": {
+    "doctor_after": {
+      "auth_mode": "chatgpt",
+      "model_turns": 0,
+      "native": {
+        "model": "gpt-6-luna",
+        "model_reasoning_effort": "xhigh"
+      },
+      "versions": {
+        "runtime_package": "0.157.1",
+        "sdk": "0.157.1"
+      }
+    },
+    "doctor_before": {
+      "auth_mode": "chatgpt",
+      "model_turns": 0,
+      "native": {
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "xhigh"
+      },
+      "versions": {
+        "runtime_package": "0.157.1",
+        "sdk": "0.157.1"
+      }
+    },
+    "expired_compaction_before": {
+      "adapter_calls": [
+        "thread/read",
+        "thread/compact/start"
+      ],
+      "defect": "Expired deadline still dispatches compaction RPC",
+      "model_calls": 0,
+      "result": {
+        "state": "TIMEOUT",
+        "turn_id": null,
+        "usage": null
+      }
+    },
+    "oracle_amendment": {
+      "after": "ad3ecd0b4b681916fe4b658093a73db4911c18fade2cd2f1e059871c9e1967b1",
+      "before": "6a752c681d75698aedd9b26e29576e67c5261f3db1e90043d6338554310754bd",
+      "case": "medium",
+      "model_reruns": 0,
+      "reason": "Original >100 diversity threshold exceeded written acceptance (varied orders, explicitly no uniformity guarantee); >1 enforces published requirement. Amendment before native medium completed. Original factory assessment retained; apply same corrected oracle to both."
+    },
+    "oracle_references": [
+      {
+        "case": "small",
+        "exit": 0,
+        "output": "ORACLE PASS small\n",
+        "reference": "def2dabea858b6ecb84ee0c52e6e07929f2c409c"
+      },
+      {
+        "case": "medium",
+        "exit": 0,
+        "output": "ORACLE PASS medium\n",
+        "reference": "141f38bcf6a027b36f9a59f66f704cdb930ace19"
+      },
+      {
+        "case": "debug",
+        "exit": 0,
+        "output": "ORACLE PASS debug\n",
+        "reference": "752799b5c88e0823f1bd93e073edab0a6a7e5648"
+      },
+      {
+        "case": "refactor",
+        "exit": 0,
+        "output": "ORACLE PASS refactor\n",
+        "reference": "237388cc3220bdc7cfacc6f766304a49b42fb8e7"
+      },
+      {
+        "case": "long",
+        "exit": 0,
+        "output": "ORACLE PASS long\n",
+        "reference": "fbb9a98d8c7b914fcc952afd4976c1bc8deebe87"
+      }
+    ],
+    "oracle_sensitivity": [
+      {
+        "case": "small",
+        "error_tail": " line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 90, in <module>\n    globals()[sys.argv[1]]()\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 20, in small\n    except BaseException as actual: assert actual is exc, (fn,key,type(actual))\n                                           ^^^^^^^^^^^^^\nAssertionError: (<function one at 0x1054196c0>, 'too_short', <class 'ValueError'>)\n",
+        "unfixed_exit": 1
+      },
+      {
+        "case": "medium",
+        "error_tail": "e \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 90, in <module>\n    globals()[sys.argv[1]]()\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 26, in medium\n    assert sorted(mi.random_ordered_range(*args))==sorted(range(*args)), args\n                  ^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: module 'more_itertools' has no attribute 'random_ordered_range'\n",
+        "unfixed_exit": 1
+      },
+      {
+        "case": "debug",
+        "error_tail": "ceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 90, in <module>\n    globals()[sys.argv[1]]()\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 46, in debug\n    assert list(reversed(r))==list(r)[::-1],args\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (0.0, 1.0, 0.1)\n",
+        "unfixed_exit": 1
+      },
+      {
+        "case": "refactor",
+        "error_tail": "\n  File \"<string>\", line 1, in <module>\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 90, in <module>\n    globals()[sys.argv[1]]()\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 64, in refactor\n    assert 'factorial(' not in inspect.getsource(mi.nth_permutation)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "unfixed_exit": 1
+      },
+      {
+        "case": "long",
+        "error_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 90, in <module>\n    globals()[sys.argv[1]]()\n  File \"<DEVFACTORY_ROOT>/scripts/evaluation/oracle.py\", line 70, in long\n    assert it.peek()==it.peek()==n and bool(it)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "unfixed_exit": 1
+      }
+    ],
+    "pr_lifecycle": {
+      "base_sha": "0500c474e00f7c54b6fe6efbd1d41794b06f9448",
+      "deploy": false,
+      "deployments_before": 0,
+      "head_sha": "5288b9fc4be9da052fb5d545597bac5df3bc601f",
+      "hooks": 0,
+      "human_interventions": 0,
+      "merge": false,
+      "pr": {
+        "headRefOid": "5288b9fc4be9da052fb5d545597bac5df3bc601f",
+        "isDraft": true,
+        "number": 1,
+        "state": "OPEN",
+        "url": "https://github.com/dkharlanau/devfactory-evaluation-20260926/pull/1"
+      },
+      "reason": "Acceptance checks and fresh review passed; product release remains separate",
+      "remote_repo": "dkharlanau/devfactory-evaluation-20260926",
+      "repeat": {
+        "receipt": "<DEVFACTORY_ROOT>/.factory/evaluation/pr-lifecycle/runs/a66ddbc1e2854bf1/receipt.json",
+        "run_id": "a66ddbc1e2854bf1",
+        "state": "EXISTING_COMPLETION"
+      },
+      "review": "PASS",
+      "reviewed_base": "0500c474e00f7c54b6fe6efbd1d41794b06f9448",
+      "reviewed_sha": "5288b9fc4be9da052fb5d545597bac5df3bc601f",
+      "run_id": "a66ddbc1e2854bf1",
+      "stages": [
+        {
+          "state": "INJECTED_AFTER_PUSH",
+          "turns": 2
+        },
+        {
+          "state": "INJECTED_AFTER_PR",
+          "turns": 2
+        },
+        {
+          "state": "PR_OPENED",
+          "turns": 2
+        }
+      ],
+      "state": "PR_OPENED",
+      "tests": [
+        {
+          "argv": [
+            "<DEVFACTORY_ROOT>/.venv/bin/python",
+            "-m",
+            "unittest",
+            "-v"
+          ],
+          "check": "unit",
+          "elapsed_seconds": 0.0633618750007372,
+          "exit_code": 0,
+          "fingerprint": "a2b5125daf54458eb3db644cc682df7e1a3325fbe470b4828e4669bcd1508669",
+          "log": "<DEVFACTORY_ROOT>/.factory/evaluation/pr-lifecycle/runs/a66ddbc1e2854bf1/test-1.log"
+        }
+      ],
+      "trigger_files": [],
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "elapsed_seconds": 11.73608354099997,
+          "error_code": null,
+          "escalation_reason": null,
+          "findings": [],
+          "instruction_utf8_bytes": 898,
+          "packet_utf8_bytes": 701,
+          "policy_version": "1",
+          "profile": "fast",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "low",
+          "requested_model": "gpt-6-luna",
+          "resolved_model": "gpt-6-luna",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd68-1731-71f1-8633-a802f2c91b47",
+          "turn_id": "01a0dd68-183a-7aa3-9177-e2c6aa0e6905",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 16128,
+              "inputTokens": 16954,
+              "outputTokens": 44,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 16998
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 32256,
+              "inputTokens": 50132,
+              "outputTokens": 316,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 50448
+            }
+          },
+          "verdict": "PASS"
+        },
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "elapsed_seconds": 13.574365374999616,
+          "error_code": null,
+          "escalation_reason": null,
+          "findings": [],
+          "instruction_utf8_bytes": 892,
+          "packet_utf8_bytes": 1174,
+          "policy_version": "1",
+          "profile": "review",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "medium",
+          "requested_model": "gpt-6-luna",
+          "resolved_model": "gpt-6-luna",
+          "role": "review",
+          "status": "completed",
+          "thread_id": "01a0dd68-4ba1-7491-810d-8c5e553a69c5",
+          "turn_id": "01a0dd68-4bef-78d2-9849-bb1f3d24f44c",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 16128,
+              "inputTokens": 17558,
+              "outputTokens": 53,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17611
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 32256,
+              "inputTokens": 51032,
+              "outputTokens": 389,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 51421
+            }
+          },
+          "verdict": "PASS"
+        }
+      ],
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 64512,
+        "inputTokens": 101164,
+        "outputTokens": 705,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 101869
+      }
+    },
+    "recovery": {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/recovery-long",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 11.68187995900007,
+        "suite_exit": 0,
+        "test_count": 916
+      },
+      "checkpoint_bytes": 1318,
+      "compaction": {
+        "evidence": "thread/read persisted turn state",
+        "items": [
+          "01a0dd6a-5167-7c22-80d5-6dec5d4e5d25"
+        ],
+        "state": "COMPLETED",
+        "turn_id": "01a0dd6a-4f9c-7340-8cf4-d6ed64fda7b7",
+        "usage": null
+      },
+      "final_state": "PAUSED_BUDGET",
+      "final_thread": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+      "first_state": "PAUSED",
+      "first_thread": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+      "human_interventions": 0,
+      "measurements": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "thread_setup_seconds": 0.2387728749999951
+        },
+        {
+          "command_count": 10,
+          "command_output_characters": 23472,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16422,
+              "outputTokens": 181,
+              "reasoningOutputTokens": 50,
+              "totalTokens": 16603
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16422,
+              "outputTokens": 181,
+              "reasoningOutputTokens": 50,
+              "totalTokens": 16603
+            }
+          },
+          "packet_utf8_bytes": 1366,
+          "persisted_compactions": 0,
+          "read_like_command_count": 9,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 0,
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "turn_id": "01a0dd69-4c09-79a0-8839-a7a6ac1b2838",
+          "turn_seconds": 64.409973584
+        },
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": true,
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "thread_setup_seconds": 0.09656504099984886
+        },
+        {
+          "command_count": 22,
+          "command_output_characters": 57095,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 8960,
+              "inputTokens": 18155,
+              "outputTokens": 186,
+              "reasoningOutputTokens": 20,
+              "totalTokens": 18341
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 95744,
+              "inputTokens": 132053,
+              "outputTokens": 3120,
+              "reasoningOutputTokens": 1623,
+              "totalTokens": 135173
+            }
+          },
+          "packet_utf8_bytes": 1366,
+          "persisted_compactions": 1,
+          "read_like_command_count": 16,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4,
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "turn_id": "01a0dd6a-e954-78d1-a0d7-33927b98248a",
+          "turn_seconds": 193.93485412500013
+        }
+      ],
+      "reason": "Observable token soft budget reached",
+      "receipt_bytes": 10472,
+      "repeat": {
+        "run_id": "cc8381c6098745b9",
+        "state": "RESUME_REQUIRED"
+      },
+      "review": null,
+      "run_id": "cc8381c6098745b9",
+      "source_unchanged_by_compaction": true,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "elapsed_seconds": 64.50657070800025,
+          "error_code": null,
+          "escalation_reason": null,
+          "instruction_utf8_bytes": 898,
+          "packet_utf8_bytes": 1366,
+          "policy_version": "1",
+          "profile": "deep",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "high",
+          "requested_model": "gpt-6-luna",
+          "resolved_model": "gpt-6-luna",
+          "role": "build",
+          "status": "interrupted",
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "turn_id": "01a0dd69-4c09-79a0-8839-a7a6ac1b2838",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 21248,
+              "inputTokens": 23559,
+              "outputTokens": 2100,
+              "reasoningOutputTokens": 1486,
+              "totalTokens": 25659
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 86784,
+              "inputTokens": 113898,
+              "outputTokens": 2934,
+              "reasoningOutputTokens": 1603,
+              "totalTokens": 116832
+            }
+          }
+        },
+        {
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "role": "compaction",
+          "status": "COMPLETED",
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "turn_id": "01a0dd6a-4f9c-7340-8cf4-d6ed64fda7b7",
+          "usage": null
+        },
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "elapsed_seconds": 193.97093633400073,
+          "error_code": null,
+          "escalation_reason": null,
+          "findings": [],
+          "instruction_utf8_bytes": 898,
+          "packet_utf8_bytes": 1366,
+          "policy_version": "1",
+          "profile": "deep",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "high",
+          "requested_model": "gpt-6-luna",
+          "resolved_model": "gpt-6-luna",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd69-4adf-71b1-827e-f606af72fe21",
+          "turn_id": "01a0dd6a-e954-78d1-a0d7-33927b98248a",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 33536,
+              "inputTokens": 34162,
+              "outputTokens": 121,
+              "reasoningOutputTokens": 43,
+              "totalTokens": 34283
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 761088,
+              "inputTokens": 827983,
+              "outputTokens": 10565,
+              "reasoningOutputTokens": 4534,
+              "totalTokens": 838548
+            }
+          },
+          "verdict": "PASS"
+        }
+      ],
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 761088,
+        "inputTokens": 827983,
+        "outputTokens": 10565,
+        "reasoningOutputTokens": 4534,
+        "totalTokens": 838548
+      },
+      "usage_complete": false
+    },
+    "thread_observations": {
+      "model_turns": 0,
+      "native_default_at_observation": {
+        "model": "gpt-6-luna",
+        "model_reasoning_effort": "xhigh"
+      },
+      "threads": {
+        "01a0dd47-0394-7d71-9320-3a44d02ef96d": {
+          "command_count": 9,
+          "command_output_characters": 38536,
+          "persisted_compactions": 0,
+          "read_like_command_count": 6,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2
+        },
+        "01a0dd49-ee95-71f3-ac8e-4501f289574f": {
+          "command_count": 5,
+          "command_output_characters": 12446,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1
+        },
+        "01a0dd4b-20d7-7f83-bb76-2de48ae00338": {
+          "command_count": 5,
+          "command_output_characters": 16205,
+          "persisted_compactions": 0,
+          "read_like_command_count": 4,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1
+        },
+        "01a0dd4c-5477-7971-b16e-7f5ecbff8832": {
+          "command_count": 7,
+          "command_output_characters": 31817,
+          "persisted_compactions": 0,
+          "read_like_command_count": 4,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1
+        },
+        "01a0dd4e-d2dc-74b2-b917-29ab0ad291dc": {
+          "command_count": 16,
+          "command_output_characters": 61603,
+          "persisted_compactions": 0,
+          "read_like_command_count": 12,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1
+        },
+        "01a0dd52-c152-7fb1-ab22-3604c949e24e": {
+          "command_count": 12,
+          "command_output_characters": 65545,
+          "persisted_compactions": 0,
+          "read_like_command_count": 7,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2
+        },
+        "01a0dd56-f4e0-73c0-b41f-e6f5bb33656e": {
+          "command_count": 8,
+          "command_output_characters": 44774,
+          "persisted_compactions": 0,
+          "read_like_command_count": 5,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 3
+        },
+        "01a0dd59-287d-7d50-ace7-64675225da78": {
+          "command_count": 5,
+          "command_output_characters": 13368,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2
+        },
+        "01a0dd5a-83cf-7d52-bc1d-06a7ad79abaf": {
+          "command_count": 4,
+          "command_output_characters": 13302,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1
+        },
+        "01a0dd5b-39a2-7160-a9a0-0c949eafc66f": {
+          "command_count": 15,
+          "command_output_characters": 34709,
+          "persisted_compactions": 0,
+          "read_like_command_count": 8,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2
+        },
+        "01a0dd5d-7c51-7b42-8c1e-329fc8c74fef": {
+          "command_count": 23,
+          "command_output_characters": 129121,
+          "persisted_compactions": 0,
+          "read_like_command_count": 12,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4
+        },
+        "01a0dd63-217a-7613-a175-8a36e3930b02": {
+          "command_count": 12,
+          "command_output_characters": 38105,
+          "persisted_compactions": 0,
+          "read_like_command_count": 8,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4
+        },
+        "01a0dd68-1731-71f1-8633-a802f2c91b47": {
+          "command_count": 2,
+          "command_output_characters": 900,
+          "persisted_compactions": 0,
+          "read_like_command_count": 2,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 0
+        },
+        "01a0dd68-4ba1-7491-810d-8c5e553a69c5": {
+          "command_count": 2,
+          "command_output_characters": 1920,
+          "persisted_compactions": 0,
+          "read_like_command_count": 2,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 0
+        },
+        "01a0dd69-4adf-71b1-827e-f606af72fe21": {
+          "command_count": 22,
+          "command_output_characters": 57095,
+          "persisted_compactions": 1,
+          "read_like_command_count": 16,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4
+        }
+      }
+    },
+    "unconsumed_queue_before": {
+      "consumer_call_sites": 0,
+      "model_turns": 0,
+      "python_object_bytes_upper_estimate": 1307,
+      "unconsumed_notifications": 2
+    }
+  },
+  "general_savings_claim": null,
+  "native_configured_defaults": {
+    "effort": "xhigh",
+    "model": "gpt-6-astra"
+  },
+  "parent_chat_usage": "unknown",
+  "primary_budget": {
+    "deadline_seconds": 1800,
+    "external_model_turns": 6,
+    "reserve_percent": 10,
+    "soft_tokens": 150000
+  },
+  "primary_pairs_planned": 5,
+  "primary_runs_observed": 10,
+  "primary_target_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+  "raw_receipt_sha256": {
+    "debug-factory.json": "f145bb76dcb5c42965c0794d543b2555abaeec1baa8637f9c4df9ae9f510c388",
+    "debug-native.json": "7bd056c9e43faf1d5210f88b1aae7b30b0596c6cac6bf4851e96654d1452099a",
+    "long-factory.json": "cfebae814ac07cf3436cc10d9e0a80355d44aa88c12cf596473c67df442e4e96",
+    "long-native.json": "5b043f81d3330c14bb0fb53ab313f1e34b499c9fc5a14f1813f46fee7eef6665",
+    "medium-factory-reassessment.json": "466fb34eaa792ba76f32cdff51438a7746793e4fb3d86074a326e67abafd4fb8",
+    "medium-factory.json": "9ae39f3b21c13203cff3c1931f7b94f3ce1cd3c7410b10b9592ad03e8bc70ffb",
+    "medium-native.json": "5545eed5b6b9e49a3489d2ddb8709dc17ddc014510da15847e7b27de575fa5fa",
+    "refactor-factory.json": "0d586dab6851ce36114a1a07ab72f9e653f6c30ed27310a3aea45773bf61eec3",
+    "refactor-native.json": "cbc69c85f0d2b572dd8a003bd2f0af3d78e31ea8e91ea6f3519ad91220231247",
+    "small-factory.json": "b0139a3f7f9c6bc5f76929e98b4a4ece6b140435442f858cd3052c6369f7cbf4",
+    "small-native.json": "2a2f37c2023ff7ef5e25e813e7010aa79dc50c255a8b117b66dcfd5d2a131fe6"
+  },
+  "replicates_per_cell": 1,
+  "results": [
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/small-native",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 11.083086667000316,
+        "suite_exit": 0,
+        "test_count": 919
+      },
+      "case": "small",
+      "category": "small targeted bug fix",
+      "changed_files": [
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "17\t11\tmore_itertools/more.py\n71\t2\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 88,
+        "tracked_deleted_lines": 13,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "902f4f4490cfc6f7da7b7bad2cd60235f0e31c2ead3cffdc2e76508c518893d1",
+      "human_interventions": 0,
+      "independent_review": "not part of direct workflow; common external behavioral assessment follows",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 899,
+          "resume": false,
+          "thread_id": "01a0dd47-0394-7d71-9320-3a44d02ef96d",
+          "thread_setup_seconds": 0.27093941700059077
+        },
+        {
+          "command_count": 9,
+          "command_output_characters": 38536,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16907,
+              "outputTokens": 113,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17020
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16907,
+              "outputTokens": 113,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17020
+            }
+          },
+          "packet_utf8_bytes": 809,
+          "persisted_compactions": 0,
+          "read_like_command_count": 6,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "thread_id": "01a0dd47-0394-7d71-9320-3a44d02ef96d",
+          "turn_id": "01a0dd47-069a-7542-99cf-f874d75edd40",
+          "turn_seconds": 146.84022249999998
+        }
+      ],
+      "meta": {
+        "case_hash": "6586173c9bdfe1e243c8951ca4276c29e618e40a36b5f3ce198a5290edd33eb1",
+        "snapshot_sha": "eb382a338035e28b7fbebe09cc804579a595965c",
+        "upstream_sha": "9ed3dbb0ae527230cd156d91d0af305478558fba"
+      },
+      "model_turn_seconds": 146.84022249999998,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "repairs": 0,
+      "repository_read_bytes": "unknown",
+      "runtime": "0.157.1",
+      "state": "COMPLETE_SELF_REVIEWED",
+      "tool_commands_with_nonzero_exit": 3,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd47-0394-7d71-9320-3a44d02ef96d",
+          "turn_id": "01a0dd47-069a-7542-99cf-f874d75edd40",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 31232,
+              "inputTokens": 31628,
+              "outputTokens": 128,
+              "reasoningOutputTokens": 57,
+              "totalTokens": 31756
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 213760,
+              "inputTokens": 246836,
+              "outputTokens": 3882,
+              "reasoningOutputTokens": 1392,
+              "totalTokens": 250718
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 33076,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 213760,
+        "inputTokens": 246836,
+        "outputTokens": 3882,
+        "reasoningOutputTokens": 1392,
+        "totalTokens": 250718
+      },
+      "variant": "native",
+      "workflow_complete": true,
+      "workflow_seconds": 160.07082883400017,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/native/small"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/small-factory",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 10.676836333999745,
+        "suite_exit": 0,
+        "test_count": 918
+      },
+      "case": "small",
+      "category": "small targeted bug fix",
+      "changed_files": [
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "9\t3\tmore_itertools/more.py\n53\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 62,
+        "tracked_deleted_lines": 3,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "721be52d1be147541e678b43f2cf4f122fa4d988865e16638abb4a55d440fba5",
+      "human_interventions": 0,
+      "independent_review": "PASS",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd49-ee95-71f3-ac8e-4501f289574f",
+          "thread_setup_seconds": 0.19253624999964813
+        },
+        {
+          "command_count": 5,
+          "command_output_characters": 12446,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17026,
+              "outputTokens": 106,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17132
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17026,
+              "outputTokens": 106,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17132
+            }
+          },
+          "packet_utf8_bytes": 934,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "thread_id": "01a0dd49-ee95-71f3-ac8e-4501f289574f",
+          "turn_id": "01a0dd49-ef37-7f61-bfba-dfce19733410",
+          "turn_seconds": 65.79768633299955
+        },
+        {
+          "instruction_utf8_bytes": 892,
+          "resume": false,
+          "thread_id": "01a0dd4b-20d7-7f83-bb76-2de48ae00338",
+          "thread_setup_seconds": 0.0992684590000863
+        },
+        {
+          "command_count": 5,
+          "command_output_characters": 16205,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17224,
+              "outputTokens": 112,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17336
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17224,
+              "outputTokens": 112,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17336
+            }
+          },
+          "packet_utf8_bytes": 1389,
+          "persisted_compactions": 0,
+          "read_like_command_count": 4,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "thread_id": "01a0dd4b-20d7-7f83-bb76-2de48ae00338",
+          "turn_id": "01a0dd4b-2135-73b2-a256-3d76cedb6d3c",
+          "turn_seconds": 36.514531499999975
+        }
+      ],
+      "meta": {
+        "case_hash": "6586173c9bdfe1e243c8951ca4276c29e618e40a36b5f3ce198a5290edd33eb1",
+        "snapshot_sha": "eb382a338035e28b7fbebe09cc804579a595965c",
+        "upstream_sha": "9ed3dbb0ae527230cd156d91d0af305478558fba"
+      },
+      "model_turn_seconds": 102.31221783299952,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 2,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "phase": "ready",
+      "reason": "Acceptance checks and fresh review passed; product release remains separate",
+      "receipt_id": "bc85a919b5eb42fe",
+      "repairs": 0,
+      "repeat": {
+        "receipt": "<DEVFACTORY_ROOT>/.factory/evaluation/state/small/runs/bc85a919b5eb42fe/receipt.json",
+        "run_id": "bc85a919b5eb42fe",
+        "state": "EXISTING_COMPLETION"
+      },
+      "repository_read_bytes": "unknown",
+      "review_findings": [],
+      "review_summary": "The fix preserves custom exception identity, avoids item repr evaluation when a custom exception is supplied, and preserves iterator consumption. Regression tests cover falsy exceptions and default errors. All 918 tests pass; diff whitespace checks pass.",
+      "runtime": "0.157.1",
+      "state": "READY_LOCAL",
+      "tool_commands_with_nonzero_exit": 0,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "fast",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "low",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd49-ee95-71f3-ac8e-4501f289574f",
+          "turn_id": "01a0dd49-ef37-7f61-bfba-dfce19733410",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 21760,
+              "inputTokens": 22187,
+              "outputTokens": 75,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 22262
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 95616,
+              "inputTokens": 118620,
+              "outputTokens": 1483,
+              "reasoningOutputTokens": 39,
+              "totalTokens": 120103
+            }
+          }
+        },
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "review",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "medium",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "review",
+          "status": "completed",
+          "thread_id": "01a0dd4b-20d7-7f83-bb76-2de48ae00338",
+          "turn_id": "01a0dd4b-2135-73b2-a256-3d76cedb6d3c",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 22144,
+              "inputTokens": 22412,
+              "outputTokens": 67,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 22479
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 79488,
+              "inputTokens": 120026,
+              "outputTokens": 535,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 120561
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 63542,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 175104,
+        "inputTokens": 238646,
+        "outputTokens": 2018,
+        "reasoningOutputTokens": 39,
+        "totalTokens": 240664
+      },
+      "variant": "factory",
+      "workflow_complete": true,
+      "workflow_seconds": 120.86746887499976,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/state/small/worktrees/bc85a919b5eb42fe"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/medium-native",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 10.494270041999698,
+        "suite_exit": 0,
+        "test_count": 917
+      },
+      "case": "medium",
+      "category": "medium multi-file implementation",
+      "changed_files": [
+        "README.rst",
+        "docs/api.rst",
+        "more_itertools/more.py",
+        "more_itertools/more.pyi",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "1\t0\tREADME.rst\n1\t0\tdocs/api.rst\n52\t0\tmore_itertools/more.py\n8\t0\tmore_itertools/more.pyi\n119\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 181,
+        "tracked_deleted_lines": 0,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "d773685b05a6731bcaae7918e3ed6ff1563f4c82699fc593792b90a3e4fc9c55",
+      "human_interventions": 0,
+      "independent_review": "not part of direct workflow; common external behavioral assessment follows",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 899,
+          "resume": false,
+          "thread_id": "01a0dd4e-d2dc-74b2-b917-29ab0ad291dc",
+          "thread_setup_seconds": 0.17384579200006556
+        },
+        {
+          "command_count": 16,
+          "command_output_characters": 61603,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 9728,
+              "inputTokens": 16954,
+              "outputTokens": 153,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17107
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 9728,
+              "inputTokens": 16954,
+              "outputTokens": 153,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17107
+            }
+          },
+          "packet_utf8_bytes": 1045,
+          "persisted_compactions": 0,
+          "read_like_command_count": 12,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1,
+          "thread_id": "01a0dd4e-d2dc-74b2-b917-29ab0ad291dc",
+          "turn_id": "01a0dd4e-d601-78b3-be53-71ae87bafe3d",
+          "turn_seconds": 232.94364370899984
+        }
+      ],
+      "meta": {
+        "case_hash": "d83bd6cd15b296c52f46b176418c08ae8ba6b827dd0e8a8e79df5f5d4bb085a6",
+        "snapshot_sha": "e3b8c99945e26ef5fbe305f9448c57e083b69ff1",
+        "upstream_sha": "3e87c08ac878f4bb79349d38ac69ba75c45dc5bf"
+      },
+      "model_turn_seconds": 232.94364370899984,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "repairs": 0,
+      "repository_read_bytes": "unknown",
+      "runtime": "0.157.1",
+      "state": "COMPLETE_SELF_REVIEWED",
+      "tool_commands_with_nonzero_exit": 2,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd4e-d2dc-74b2-b917-29ab0ad291dc",
+          "turn_id": "01a0dd4e-d601-78b3-be53-71ae87bafe3d",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 40448,
+              "inputTokens": 41282,
+              "outputTokens": 518,
+              "reasoningOutputTokens": 456,
+              "totalTokens": 41800
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 236160,
+              "inputTokens": 269063,
+              "outputTokens": 7037,
+              "reasoningOutputTokens": 3395,
+              "totalTokens": 276100
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 32903,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 236160,
+        "inputTokens": 269063,
+        "outputTokens": 7037,
+        "reasoningOutputTokens": 3395,
+        "totalTokens": 276100
+      },
+      "variant": "native",
+      "workflow_complete": true,
+      "workflow_seconds": 245.37829170900022,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/native/medium"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/medium-factory-corrected-oracle",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 10.961092000000463,
+        "suite_exit": 0,
+        "test_count": 917
+      },
+      "assessment_amended": true,
+      "case": "medium",
+      "category": "medium multi-file implementation",
+      "changed_files": [
+        "README.rst",
+        "docs/api.rst",
+        "more_itertools/more.py",
+        "more_itertools/more.pyi",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "1\t0\tREADME.rst\n1\t0\tdocs/api.rst\n44\t0\tmore_itertools/more.py\n11\t0\tmore_itertools/more.pyi\n80\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 137,
+        "tracked_deleted_lines": 0,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "8aff440de728a14d7f966d3119bddf66cf7cf17796fb90f8f0d94ea00d0ba3a2",
+      "human_interventions": 0,
+      "independent_review": null,
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd4c-5477-7971-b16e-7f5ecbff8832",
+          "thread_setup_seconds": 0.18850741699952778
+        },
+        {
+          "command_count": 7,
+          "command_output_characters": 31817,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 9728,
+              "inputTokens": 17086,
+              "outputTokens": 99,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17185
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 9728,
+              "inputTokens": 17086,
+              "outputTokens": 99,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17185
+            }
+          },
+          "packet_utf8_bytes": 1170,
+          "persisted_compactions": 0,
+          "read_like_command_count": 4,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "thread_id": "01a0dd4c-5477-7971-b16e-7f5ecbff8832",
+          "turn_id": "01a0dd4c-5518-7a20-a36d-e3aa1e38344c",
+          "turn_seconds": 138.1949354999997
+        }
+      ],
+      "meta": {
+        "case_hash": "d83bd6cd15b296c52f46b176418c08ae8ba6b827dd0e8a8e79df5f5d4bb085a6",
+        "snapshot_sha": "e3b8c99945e26ef5fbe305f9448c57e083b69ff1",
+        "upstream_sha": "3e87c08ac878f4bb79349d38ac69ba75c45dc5bf"
+      },
+      "model_turn_seconds": 138.1949354999997,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "original_assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/medium-factory",
+        "oracle_exit": 1,
+        "quality": "FAIL",
+        "regressions": "none detected",
+        "seconds": 10.810529207999934,
+        "suite_exit": 0,
+        "test_count": 917
+      },
+      "parent_chat_usage": "unknown",
+      "phase": "review",
+      "reason": "Observable token soft budget reached",
+      "receipt_id": "949d3f0eb2844c39",
+      "repairs": 0,
+      "repeat": {
+        "run_id": "949d3f0eb2844c39",
+        "state": "RESUME_REQUIRED"
+      },
+      "repository_read_bytes": "unknown",
+      "review_findings": [],
+      "review_summary": null,
+      "runtime": "0.157.1",
+      "state": "PAUSED_BUDGET",
+      "tool_commands_with_nonzero_exit": 0,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "standard",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "medium",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd4c-5477-7971-b16e-7f5ecbff8832",
+          "turn_id": "01a0dd4c-5518-7a20-a36d-e3aa1e38344c",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 25088,
+              "inputTokens": 30148,
+              "outputTokens": 64,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 30212
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 175232,
+              "inputTokens": 215317,
+              "outputTokens": 3797,
+              "reasoningOutputTokens": 478,
+              "totalTokens": 219114
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 40085,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 175232,
+        "inputTokens": 215317,
+        "outputTokens": 3797,
+        "reasoningOutputTokens": 478,
+        "totalTokens": 219114
+      },
+      "variant": "factory",
+      "workflow_complete": false,
+      "workflow_seconds": 154.71266925000054,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/state/medium/worktrees/949d3f0eb2844c39"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/debug-native",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 11.36448825000025,
+        "suite_exit": 0,
+        "test_count": 919
+      },
+      "case": "debug",
+      "category": "investigation and debugging",
+      "changed_files": [
+        "docs/evaluation-debug.md",
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "5\t8\tmore_itertools/more.py\n84\t1\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 89,
+        "tracked_deleted_lines": 9,
+        "untracked_bytes": 1880,
+        "untracked_files": [
+          "docs/evaluation-debug.md"
+        ],
+        "untracked_lines": 33
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "9c3b879a137ae4d3b56b6426f53c7d313d467b461cfdc138909c87faf52fb5ce",
+      "human_interventions": 0,
+      "independent_review": "not part of direct workflow; common external behavioral assessment follows",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 899,
+          "resume": false,
+          "thread_id": "01a0dd52-c152-7fb1-ab22-3604c949e24e",
+          "thread_setup_seconds": 0.20938649999970949
+        },
+        {
+          "command_count": 12,
+          "command_output_characters": 65545,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16917,
+              "outputTokens": 137,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17054
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16917,
+              "outputTokens": 137,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17054
+            }
+          },
+          "packet_utf8_bytes": 868,
+          "persisted_compactions": 0,
+          "read_like_command_count": 7,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2,
+          "thread_id": "01a0dd52-c152-7fb1-ab22-3604c949e24e",
+          "turn_id": "01a0dd52-c508-7210-8d61-a5a4e3872396",
+          "turn_seconds": 246.97299587499947
+        }
+      ],
+      "meta": {
+        "case_hash": "e522722e1ff5d857e0beb57639e9817daa366e670a1c41b17163ec7dd6eb8f28",
+        "snapshot_sha": "499cddf863817ec68ad27da8010c8c2184d05861",
+        "upstream_sha": "9ed3dbb0ae527230cd156d91d0af305478558fba"
+      },
+      "model_turn_seconds": 246.97299587499947,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "repairs": 0,
+      "repository_read_bytes": "unknown",
+      "runtime": "0.157.1",
+      "state": "COMPLETE_SELF_REVIEWED",
+      "tool_commands_with_nonzero_exit": 3,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd52-c152-7fb1-ab22-3604c949e24e",
+          "turn_id": "01a0dd52-c508-7210-8d61-a5a4e3872396",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 43776,
+              "inputTokens": 44983,
+              "outputTokens": 69,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 45052
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 349824,
+              "inputTokens": 396752,
+              "outputTokens": 7142,
+              "reasoningOutputTokens": 3301,
+              "totalTokens": 403894
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 46928,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 349824,
+        "inputTokens": 396752,
+        "outputTokens": 7142,
+        "reasoningOutputTokens": 3301,
+        "totalTokens": 403894
+      },
+      "variant": "native",
+      "workflow_complete": true,
+      "workflow_seconds": 260.2786665419999,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/native/debug"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/debug-factory",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 10.974030542000037,
+        "suite_exit": 0,
+        "test_count": 917
+      },
+      "case": "debug",
+      "category": "investigation and debugging",
+      "changed_files": [
+        "docs/evaluation-debug.md",
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "5\t8\tmore_itertools/more.py\n49\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 54,
+        "tracked_deleted_lines": 8,
+        "untracked_bytes": 1514,
+        "untracked_files": [
+          "docs/evaluation-debug.md"
+        ],
+        "untracked_lines": 26
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "10be41118e5cd028d007e70122103e106353f44384e546d1951b8a9f5e44b402",
+      "human_interventions": 0,
+      "independent_review": null,
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd56-f4e0-73c0-b41f-e6f5bb33656e",
+          "thread_setup_seconds": 0.15143191700008174
+        },
+        {
+          "command_count": 8,
+          "command_output_characters": 44774,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17031,
+              "outputTokens": 109,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17140
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17031,
+              "outputTokens": 109,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17140
+            }
+          },
+          "packet_utf8_bytes": 993,
+          "persisted_compactions": 0,
+          "read_like_command_count": 5,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 3,
+          "thread_id": "01a0dd56-f4e0-73c0-b41f-e6f5bb33656e",
+          "turn_id": "01a0dd56-f566-78c0-ba47-7cf56f13b16a",
+          "turn_seconds": 116.1645115829997
+        }
+      ],
+      "meta": {
+        "case_hash": "e522722e1ff5d857e0beb57639e9817daa366e670a1c41b17163ec7dd6eb8f28",
+        "snapshot_sha": "499cddf863817ec68ad27da8010c8c2184d05861",
+        "upstream_sha": "9ed3dbb0ae527230cd156d91d0af305478558fba"
+      },
+      "model_turn_seconds": 116.1645115829997,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "phase": "review",
+      "reason": "Observable token soft budget reached",
+      "receipt_id": "eb618d37c391443f",
+      "repairs": 0,
+      "repeat": {
+        "run_id": "eb618d37c391443f",
+        "state": "RESUME_REQUIRED"
+      },
+      "repository_read_bytes": "unknown",
+      "review_findings": [],
+      "review_summary": null,
+      "runtime": "0.157.1",
+      "state": "PAUSED_BUDGET",
+      "tool_commands_with_nonzero_exit": 2,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "deep",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "high",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd56-f4e0-73c0-b41f-e6f5bb33656e",
+          "turn_id": "01a0dd56-f566-78c0-ba47-7cf56f13b16a",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 32512,
+              "inputTokens": 34127,
+              "outputTokens": 67,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 34194
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 198016,
+              "inputTokens": 233564,
+              "outputTokens": 2914,
+              "reasoningOutputTokens": 383,
+              "totalTokens": 236478
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 35548,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 198016,
+        "inputTokens": 233564,
+        "outputTokens": 2914,
+        "reasoningOutputTokens": 383,
+        "totalTokens": 236478
+      },
+      "variant": "factory",
+      "workflow_complete": false,
+      "workflow_seconds": 132.26736829199945,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/state/debug/worktrees/eb618d37c391443f"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/refactor-native",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 9.662944540999888,
+        "suite_exit": 0,
+        "test_count": 899
+      },
+      "case": "refactor",
+      "category": "refactor with tests",
+      "changed_files": [
+        "more_itertools/more.py",
+        "tests/test_recipes.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "6\t7\tmore_itertools/more.py\n40\t0\ttests/test_recipes.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 46,
+        "tracked_deleted_lines": 7,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "a5b4d05a3674f364d3d8068a7f18d69e59170c7ec75d637303292ad291f27e7a",
+      "human_interventions": 0,
+      "independent_review": "not part of direct workflow; common external behavioral assessment follows",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 899,
+          "resume": false,
+          "thread_id": "01a0dd5b-39a2-7160-a9a0-0c949eafc66f",
+          "thread_setup_seconds": 0.12155183399954694
+        },
+        {
+          "command_count": 15,
+          "command_output_characters": 34709,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16932,
+              "outputTokens": 131,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17063
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16932,
+              "outputTokens": 131,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17063
+            }
+          },
+          "packet_utf8_bytes": 957,
+          "persisted_compactions": 0,
+          "read_like_command_count": 8,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2,
+          "thread_id": "01a0dd5b-39a2-7160-a9a0-0c949eafc66f",
+          "turn_id": "01a0dd5b-3c30-7d80-9c81-fd5c1a1892fb",
+          "turn_seconds": 126.21822087500004
+        }
+      ],
+      "meta": {
+        "case_hash": "8c2548c82edde1e60b5ba624d7aa0f154b31f22499abce7338bb1883b0d5d889",
+        "snapshot_sha": "eca90241f0b6f9769852b01f8020abba37455b24",
+        "upstream_sha": "3a259350f28cd17f09b4f0af21c6ebc03cf725cf"
+      },
+      "model_turn_seconds": 126.21822087500004,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "repairs": 0,
+      "repository_read_bytes": "unknown",
+      "runtime": "0.157.1",
+      "state": "COMPLETE_SELF_REVIEWED",
+      "tool_commands_with_nonzero_exit": 3,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd5b-39a2-7160-a9a0-0c949eafc66f",
+          "turn_id": "01a0dd5b-3c30-7d80-9c81-fd5c1a1892fb",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 29312,
+              "inputTokens": 30872,
+              "outputTokens": 192,
+              "reasoningOutputTokens": 115,
+              "totalTokens": 31064
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 132736,
+              "inputTokens": 164795,
+              "outputTokens": 3616,
+              "reasoningOutputTokens": 1875,
+              "totalTokens": 168411
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 32059,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 132736,
+        "inputTokens": 164795,
+        "outputTokens": 3616,
+        "reasoningOutputTokens": 1875,
+        "totalTokens": 168411
+      },
+      "variant": "native",
+      "workflow_complete": true,
+      "workflow_seconds": 137.17697670899997,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/native/refactor"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/refactor-factory",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 9.693695625000146,
+        "suite_exit": 0,
+        "test_count": 899
+      },
+      "case": "refactor",
+      "category": "refactor with tests",
+      "changed_files": [
+        "more_itertools/more.py",
+        "tests/test_recipes.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "5\t7\tmore_itertools/more.py\n45\t0\ttests/test_recipes.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 50,
+        "tracked_deleted_lines": 7,
+        "untracked_bytes": 0,
+        "untracked_files": [],
+        "untracked_lines": 0
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "71418d8b8a74256024525902831bad4d0add90ab8ef91a8b952b4d032e092473",
+      "human_interventions": 0,
+      "independent_review": "PASS",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd59-287d-7d50-ace7-64675225da78",
+          "thread_setup_seconds": 0.1490661670004556
+        },
+        {
+          "command_count": 5,
+          "command_output_characters": 13368,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17046,
+              "outputTokens": 107,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17153
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17046,
+              "outputTokens": 107,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17153
+            }
+          },
+          "packet_utf8_bytes": 1082,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 2,
+          "thread_id": "01a0dd59-287d-7d50-ace7-64675225da78",
+          "turn_id": "01a0dd59-2901-7ae0-81c6-83ba5d9112a2",
+          "turn_seconds": 77.14422474999992
+        },
+        {
+          "instruction_utf8_bytes": 892,
+          "resume": false,
+          "thread_id": "01a0dd5a-83cf-7d52-bc1d-06a7ad79abaf",
+          "thread_setup_seconds": 0.9341633329995602
+        },
+        {
+          "command_count": 4,
+          "command_output_characters": 13302,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17244,
+              "outputTokens": 104,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17348
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17244,
+              "outputTokens": 104,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17348
+            }
+          },
+          "packet_utf8_bytes": 1540,
+          "persisted_compactions": 0,
+          "read_like_command_count": 3,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 1,
+          "thread_id": "01a0dd5a-83cf-7d52-bc1d-06a7ad79abaf",
+          "turn_id": "01a0dd5a-8453-7603-ace2-b07ee3b7de6e",
+          "turn_seconds": 34.205582333000166
+        }
+      ],
+      "meta": {
+        "case_hash": "8c2548c82edde1e60b5ba624d7aa0f154b31f22499abce7338bb1883b0d5d889",
+        "snapshot_sha": "eca90241f0b6f9769852b01f8020abba37455b24",
+        "upstream_sha": "3a259350f28cd17f09b4f0af21c6ebc03cf725cf"
+      },
+      "model_turn_seconds": 111.34980708300009,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 2,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "phase": "ready",
+      "reason": "Acceptance checks and fresh review passed; product release remains separate",
+      "receipt_id": "424f4ee136004aa9",
+      "repairs": 0,
+      "repeat": {
+        "receipt": "<DEVFACTORY_ROOT>/.factory/evaluation/state/refactor/runs/424f4ee136004aa9/receipt.json",
+        "run_id": "424f4ee136004aa9",
+        "state": "EXISTING_COMPLETION"
+      },
+      "repository_read_bytes": "unknown",
+      "review_findings": [],
+      "review_summary": "The refactor decodes only the required selection digits and removes factorial computation. Exhaustive small-input tests cover ordering, negative indices, empty permutations, and invalid inputs; large-input regressions verify partial permutations without factorial. All 899 tests passed.",
+      "runtime": "0.157.1",
+      "state": "READY_LOCAL",
+      "tool_commands_with_nonzero_exit": 1,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "standard",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "medium",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd59-287d-7d50-ace7-64675225da78",
+          "turn_id": "01a0dd59-2901-7ae0-81c6-83ba5d9112a2",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 22400,
+              "inputTokens": 22912,
+              "outputTokens": 70,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 22982
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 95488,
+              "inputTokens": 119272,
+              "outputTokens": 1725,
+              "reasoningOutputTokens": 214,
+              "totalTokens": 120997
+            }
+          }
+        },
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "review",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "medium",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "review",
+          "status": "completed",
+          "thread_id": "01a0dd5a-83cf-7d52-bc1d-06a7ad79abaf",
+          "turn_id": "01a0dd5a-8453-7603-ace2-b07ee3b7de6e",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 21376,
+              "inputTokens": 21687,
+              "outputTokens": 72,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 21759
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 95744,
+              "inputTokens": 118425,
+              "outputTokens": 498,
+              "reasoningOutputTokens": 7,
+              "totalTokens": 118923
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 46465,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 191232,
+        "inputTokens": 237697,
+        "outputTokens": 2223,
+        "reasoningOutputTokens": 221,
+        "totalTokens": 239920
+      },
+      "variant": "factory",
+      "workflow_complete": true,
+      "workflow_seconds": 128.1431837500004,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/state/refactor/worktrees/424f4ee136004aa9"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/long-native",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 10.986495540999385,
+        "suite_exit": 0,
+        "test_count": 926
+      },
+      "case": "long",
+      "category": "long stateful iterator repair",
+      "changed_files": [
+        "docs/evaluation-seekable.md",
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "25\t0\tmore_itertools/more.py\n229\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 254,
+        "tracked_deleted_lines": 0,
+        "untracked_bytes": 8518,
+        "untracked_files": [
+          "docs/evaluation-seekable.md"
+        ],
+        "untracked_lines": 154
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "7b5ff35779878158e73bf7cef254eefc0e4602cd30704406b82958888a65856a",
+      "human_interventions": 0,
+      "independent_review": "not part of direct workflow; common external behavioral assessment follows",
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 899,
+          "resume": false,
+          "thread_id": "01a0dd5d-7c51-7b42-8c1e-329fc8c74fef",
+          "thread_setup_seconds": 0.21267645799980528
+        },
+        {
+          "command_count": 23,
+          "command_output_characters": 129121,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16998,
+              "outputTokens": 193,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17191
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 16998,
+              "outputTokens": 193,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17191
+            }
+          },
+          "packet_utf8_bytes": 1241,
+          "persisted_compactions": 0,
+          "read_like_command_count": 12,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4,
+          "thread_id": "01a0dd5d-7c51-7b42-8c1e-329fc8c74fef",
+          "turn_id": "01a0dd5d-7f71-7242-8956-326eb6eb0556",
+          "turn_seconds": 341.7978336669994
+        }
+      ],
+      "meta": {
+        "case_hash": "d1711cc3700e08d89bd8b46e3754f4da99b28413f1191bd486d5efbfac477f7b",
+        "snapshot_sha": "6eaddb60b73578fa8e8e3bcb121ab6df37613282",
+        "upstream_sha": "ca711220a6657a22655f6fa497524d006a735c5f"
+      },
+      "model_turn_seconds": 341.7978336669994,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "repairs": 0,
+      "repository_read_bytes": "unknown",
+      "runtime": "0.157.1",
+      "state": "COMPLETE_SELF_REVIEWED",
+      "tool_commands_with_nonzero_exit": 3,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "requested_effort": null,
+          "requested_model": null,
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd5d-7c51-7b42-8c1e-329fc8c74fef",
+          "turn_id": "01a0dd5d-7f71-7242-8956-326eb6eb0556",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 49920,
+              "inputTokens": 53093,
+              "outputTokens": 168,
+              "reasoningOutputTokens": 94,
+              "totalTokens": 53261
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 418688,
+              "inputTokens": 473873,
+              "outputTokens": 10199,
+              "reasoningOutputTokens": 3127,
+              "totalTokens": 484072
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 55185,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 418688,
+        "inputTokens": 473873,
+        "outputTokens": 10199,
+        "reasoningOutputTokens": 3127,
+        "totalTokens": 484072
+      },
+      "variant": "native",
+      "workflow_complete": true,
+      "workflow_seconds": 354.1147517919999,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/native/long"
+    },
+    {
+      "assessment": {
+        "logs": "<DEVFACTORY_ROOT>/.factory/evaluation/assessments/long-factory",
+        "oracle_exit": 0,
+        "quality": "PASS",
+        "regressions": "none detected",
+        "seconds": 11.004928374999508,
+        "suite_exit": 0,
+        "test_count": 924
+      },
+      "case": "long",
+      "category": "long stateful iterator repair",
+      "changed_files": [
+        "docs/evaluation-seekable.md",
+        "more_itertools/more.py",
+        "tests/test_more.py"
+      ],
+      "checks": [
+        {
+          "exit_code": 0
+        }
+      ],
+      "context_occupation": "unknown",
+      "cost_currency": "unknown",
+      "diff_numstat": "21\t0\tmore_itertools/more.py\n173\t0\ttests/test_more.py",
+      "diff_size": {
+        "binary_files": [],
+        "tracked_added_lines": 194,
+        "tracked_deleted_lines": 0,
+        "untracked_bytes": 5281,
+        "untracked_files": [
+          "docs/evaluation-seekable.md"
+        ],
+        "untracked_lines": 112
+      },
+      "factory_revision": "60876067bfc69f7b085d7dd126d101d6032fcef2",
+      "final_quality_scope": "Full original+added tests and held-out behavioral checks; not upstream acceptance, docs build or type-check proof",
+      "fingerprint": "f145782d41bee0594aecb0cc6f1b4dbf187ed91d57ee5c6deab97d824de26a4a",
+      "human_interventions": 0,
+      "independent_review": null,
+      "initial_context_tokens": "unknown",
+      "internal_model_retries": "unknown",
+      "measurement": [
+        {
+          "instruction_utf8_bytes": 898,
+          "resume": false,
+          "thread_id": "01a0dd63-217a-7613-a175-8a36e3930b02",
+          "thread_setup_seconds": 0.14253808300054516
+        },
+        {
+          "command_count": 12,
+          "command_output_characters": 38105,
+          "first_usage_event": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17128,
+              "outputTokens": 100,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17228
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 0,
+              "inputTokens": 17128,
+              "outputTokens": 100,
+              "reasoningOutputTokens": 0,
+              "totalTokens": 17228
+            }
+          },
+          "packet_utf8_bytes": 1366,
+          "persisted_compactions": 0,
+          "read_like_command_count": 8,
+          "reference_oracle_path_mentions": 0,
+          "repeated_exact_read_commands": 0,
+          "repeated_file_reads": "unknown: shell syntax and command hashes cannot prove file-level reads",
+          "test_like_command_count": 4,
+          "thread_id": "01a0dd63-217a-7613-a175-8a36e3930b02",
+          "turn_id": "01a0dd63-21f3-7d93-b03c-45bf3104c303",
+          "turn_seconds": 239.03714879200015
+        }
+      ],
+      "meta": {
+        "case_hash": "d1711cc3700e08d89bd8b46e3754f4da99b28413f1191bd486d5efbfac477f7b",
+        "snapshot_sha": "6eaddb60b73578fa8e8e3bcb121ab6df37613282",
+        "upstream_sha": "ca711220a6657a22655f6fa497524d006a735c5f"
+      },
+      "model_turn_seconds": 239.03714879200015,
+      "model_turn_timing_includes_observer_readback": false,
+      "model_turns": 1,
+      "natural_compaction_events": 0,
+      "parent_chat_usage": "unknown",
+      "phase": "review",
+      "reason": "Observable token soft budget reached",
+      "receipt_id": "a9b0a3fbadb74c25",
+      "repairs": 0,
+      "repeat": {
+        "run_id": "a9b0a3fbadb74c25",
+        "state": "RESUME_REQUIRED"
+      },
+      "repository_read_bytes": "unknown",
+      "review_findings": [],
+      "review_summary": null,
+      "runtime": "0.157.1",
+      "state": "PAUSED_BUDGET",
+      "tool_commands_with_nonzero_exit": 3,
+      "turns": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 1,
+              "status": "failed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            },
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "compactions": [],
+          "effective_model": null,
+          "error_code": null,
+          "escalation_reason": null,
+          "policy_version": "1",
+          "profile": "deep",
+          "reason": "Owner profile; native model preserved pending comparative evidence",
+          "requested_effort": "high",
+          "requested_model": "gpt-6-astra",
+          "resolved_model": "gpt-6-astra",
+          "role": "build",
+          "status": "completed",
+          "thread_id": "01a0dd63-217a-7613-a175-8a36e3930b02",
+          "turn_id": "01a0dd63-21f3-7d93-b03c-45bf3104c303",
+          "usage": {
+            "last": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 35200,
+              "inputTokens": 35823,
+              "outputTokens": 155,
+              "reasoningOutputTokens": 82,
+              "totalTokens": 35978
+            },
+            "modelContextWindow": 258400,
+            "total": {
+              "cacheWriteInputTokens": 0,
+              "cachedInputTokens": 363008,
+              "inputTokens": 401218,
+              "outputTokens": 6347,
+              "reasoningOutputTokens": 1429,
+              "totalTokens": 407565
+            }
+          }
+        }
+      ],
+      "uncached_input_tokens": 38210,
+      "usage": {
+        "cacheWriteInputTokens": 0,
+        "cachedInputTokens": 363008,
+        "inputTokens": 401218,
+        "outputTokens": 6347,
+        "reasoningOutputTokens": 1429,
+        "totalTokens": 407565
+      },
+      "variant": "factory",
+      "workflow_complete": false,
+      "workflow_seconds": 255.44546154199998,
+      "worktree": "<DEVFACTORY_ROOT>/.factory/evaluation/state/long/worktrees/a9b0a3fbadb74c25"
+    }
+  ],
+  "runtime_version": "0.157.1",
+  "schema_version": 1,
+  "source": "https://github.com/more-itertools/more-itertools"
+}

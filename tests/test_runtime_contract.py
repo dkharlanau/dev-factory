@@ -132,7 +132,8 @@ def test_compaction_timeout_is_not_success(monkeypatch):
 
 def test_compaction_refuses_active_turn():
     r=object.__new__(Runtime);r.read=lambda tid:{'thread':{'status':{'type':'active'}}}
-    with pytest.raises(Stop,match='idle'):r.compact('t',deadline=0,checkpoint={'task':'t'})
+    import time
+    with pytest.raises(Stop,match='idle'):r.compact('t',deadline=time.time()+1,checkpoint={'task':'t'})
 
 
 def test_permissions_never_auto_approved():

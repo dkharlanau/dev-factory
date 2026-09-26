@@ -18,7 +18,7 @@ from openai_codex import CodexConfig
 from openai_codex.client import CodexClient
 from pydantic import RootModel
 
-from .policy import Stop, Compaction
+from .policy import Stop
 
 SDK_VERSION = "0.157.1"
 RUNTIME_VERSION = "0.157.1"
@@ -79,7 +79,6 @@ class Runtime:
         self.client = CodexClient(CodexConfig(cwd=self.cwd, experimental_api=False,
                                              config_overrides=BASE_OVERRIDES),
                                   approval_handler=deny_approval)
-        self.events = queue.Queue()
         self.closed = False
         self.inventory_only = inventory_only
         self.disabled_servers = []
@@ -137,14 +136,13 @@ class Runtime:
         return value
 
     def _listen(self):
+        # Drain global notifications; relevant turn events have their own public
+        # SDK subscription. Do not retain an unbounded, unconsumed second queue.
         try:
             while not self.closed:
-                event = self.client.next_notification()
-                p = dump(event.payload) if hasattr(event.payload, "model_dump") else event.payload.params
-                self.events.put((event.method, p))
-        except Exception as e:
-            if not self.closed:
-                self.events.put(("transport/closed", {"error": type(e).__name__}))
+                self.client.next_notification()
+        except Exception:
+            pass  # Turn subscriptions and RPC calls report their own failures.
 
     def quota(self):
         try:
@@ -324,11 +322,15 @@ class Runtime:
     def compact(self, tid, *, deadline, checkpoint, on_event=lambda *_: None):
         if not checkpoint:
             raise Stop("BLOCKED_CONTEXT", "Durable checkpoint required before manual compaction")
+        if time.time() >= deadline:
+            return {"state": "TIMEOUT", "turn_id": None, "usage": None}
         current = self.read(tid)["thread"]
         if current.get("status", {}).get("type") != "idle":
             raise Stop("BLOCKED_CONTEXT", "Compaction requires an idle thread")
         before = self.rpc("thread/read", {"threadId": tid, "includeTurns": True})["thread"].get("turns", [])
         previous = {t["id"] for t in before}
+        if time.time() >= deadline:
+            return {"state": "TIMEOUT", "turn_id": None, "usage": None}
         self.rpc("thread/compact/start", {"threadId": tid})
         latest = None
         # SDK 0.157.1 drops unsolicited turn events without a pre-existing turn

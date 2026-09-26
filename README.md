@@ -5,8 +5,11 @@ verified model/effort profiles, runs one bounded task at a time, preserves work,
 and leaves inspectable test, review and usage receipts. Models run remotely;
 Git, builds, tests and the supervisor run on your Mac.
 
-**Working MVP, not an efficiency claim.** Native models and autocompaction remain
-the defaults. Initial setup never starts development in product repositories.
+**Evaluated control layer, not a proven efficiency improvement.** Five paired real
+historical tasks passed behavioral checks in both workflows; current Factory budgets
+allowed 2/5 complete reviewed cycles versus 5/5 direct native cycles. See the
+[evaluation](docs/benchmarks/RESULTS.md). Native model mappings and autocompaction
+remain the defaults. Product execution requires an explicit command.
 
 ## Install and check
 
@@ -135,22 +138,34 @@ One worker, six turns, 30-minute foreground deadline, 150,000 observable-token
 starting defaults. There is no hard in-flight token cap. A turn can overshoot the
 soft budget; Factory stops issuing subsequent turns. Current context utilization,
 serving model without telemetry, and parent-chat usage are reported as unknown.
+Receipts include per-turn/check durations, active execution seconds excluding pauses,
+packet/instruction byte counts and soft-budget overshoot. Byte counts are not tokens.
+Missing intervening usage keeps per-role attribution unknown. Automatic Factory
+early compaction is unsupported: `context.manual_compaction=true` is rejected.
+The explicit manual adapter is available for controlled diagnostics; native
+autocompaction remains the execution policy.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction
-approval, exact reviewed state and passed local checks. It has simulated write
-coverage, not production proof. The parent skill attaches any created PR.
+approval, exact reviewed state and passed local checks. A dedicated private fixture
+passed real push/PR and ambiguous-write recovery; product remote integration is
+still unverified. The parent skill attaches any created PR.
 
 ## Benchmarks and evidence
 
 ```sh
 ./factory benchmark          # offline, zero model turns
-./factory benchmark --live   # explicit real native-vs-Factory fixture pair
+./factory benchmark --live   # synthetic effort-profile comparison inside Factory
+.venv/bin/python scripts/evaluation/run.py  # prepare real task snapshots, zero model turns
+.venv/bin/python scripts/evaluation/run.py --live --case small --variant native
+.venv/bin/python scripts/evaluation/run.py --live --case small --variant factory
 ```
 
-The live baseline preserves native model/effort/context defaults. Variants share
-the starting commit/spec/tools/tests but not completed solutions or histories.
-The full live comparison has **not** run. No savings percentage is supported.
+The old live fixture command runs Factory in both arms and compares effort policy.
+The separate evaluation harness uses direct SDK execution for the native baseline,
+with identical pairwise source/spec/checks and isolated histories. Five pairs have
+run; completed-work cost savings are unproven. Read the [results and limitations](docs/benchmarks/RESULTS.md)
+and [reproduction protocol](docs/benchmarks/METHODOLOGY.md).
 See [capability matrix](docs/CAPABILITIES.md), [architecture](docs/ARCHITECTURE.md),
 [limitations](docs/LIMITATIONS.md), [live receipt](docs/receipts/live-smoke.json),
 and [benchmark template](docs/BENCHMARK_TEMPLATE.md).

@@ -108,18 +108,6 @@ def repair_decision(failures, repairs, escalations, budget, infrastructure=False
     return "REPAIR"
 
 
-def context_decision(*, independent=False, review=False, checkpoint=False,
-                     manual_enabled=False, headroom_known=False, needs_headroom=False,
-                     stable=False, active=False, compacting=False):
-    if independent or review:
-        return "NEW_THREAD"
-    if active or compacting:
-        return "KEEP"
-    if manual_enabled and headroom_known and needs_headroom and stable:
-        return "COMPACT" if checkpoint else "CHECKPOINT"
-    return "KEEP"
-
-
 TOKEN_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens",
                 "cacheWriteInputTokens", "totalTokens")
 
@@ -142,24 +130,6 @@ class Usage:
         return {k: (sum(t[k] for t in self.totals.values())
                     if self.totals and all(t.get(k) is not None for t in self.totals.values())
                     else None) for k in TOKEN_FIELDS}
-
-
-class Compaction:
-    """Acknowledgement is not completion. No compaction turn means unknown."""
-    def __init__(self):
-        self.state, self.turn, self.items = "REQUESTED", None, set()
-
-    def event(self, method, p):
-        if method == "turn/started":
-            self.turn, self.state = p["turn"]["id"], "RUNNING"
-        elif method == "item/completed" and p.get("item", {}).get("type") == "contextCompaction":
-            self.items.add(p["item"]["id"])
-        elif method == "turn/completed" and p["turn"]["id"] == self.turn:
-            status = p["turn"]["status"]
-            self.state = ("COMPLETED" if self.items else "NO_OP") if status == "completed" else status.upper()
-        elif method == "error" and p.get("willRetry") is False:
-            self.state = "FAILED"
-        return self.state
 
 
 INJECTION = re.compile(

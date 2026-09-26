@@ -1,8 +1,8 @@
 import copy
 import time
 import pytest
-from devfactory.policy import (Stop,Usage,Compaction,choose_model,check_quota,check_budget,
-    context_decision,repair_decision,screen_task,integration_gate,classify)
+from devfactory.policy import (Stop,Usage,choose_model,check_quota,check_budget,
+    repair_decision,screen_task,integration_gate,classify)
 from fakes import CATALOG,QUOTA
 
 
@@ -47,26 +47,6 @@ def test_usage_cumulative_duplicate_nested_and_missing():
     u.observe('a',v); assert u.aggregate()['totalTokens']==180
     u.totals['b']={}; assert u.aggregate()['totalTokens'] is None
     assert Usage().aggregate()['inputTokens'] is None
-
-@pytest.mark.parametrize('kw,expected',[(dict(), 'KEEP'),(dict(review=True),'NEW_THREAD'),
-    (dict(independent=True),'NEW_THREAD'),(dict(manual_enabled=True,needs_headroom=True,stable=True),'KEEP'),
-    (dict(manual_enabled=True,headroom_known=True,needs_headroom=True,stable=True),'CHECKPOINT'),
-    (dict(manual_enabled=True,headroom_known=True,needs_headroom=True,stable=True,checkpoint=True),'COMPACT'),
-    (dict(manual_enabled=True,headroom_known=True,needs_headroom=True,stable=True,checkpoint=True,compacting=True),'KEEP')])
-def test_context(kw,expected): assert context_decision(**kw)==expected
-
-def test_compaction_ack_duplicate_complete():
-    c=Compaction(); assert c.state=='REQUESTED'
-    c.event('turn/started',{'turn':{'id':'t'}})
-    p={'item':{'id':'i','type':'contextCompaction'}}
-    c.event('item/completed',p);c.event('item/completed',p)
-    assert c.state=='RUNNING' and len(c.items)==1
-    assert c.event('turn/completed',{'turn':{'id':'t','status':'completed'}})=='COMPLETED'
-
-@pytest.mark.parametrize('status,result',[('completed','NO_OP'),('failed','FAILED'),('interrupted','INTERRUPTED')])
-def test_compaction_other_outcomes(status,result):
-    c=Compaction();c.event('turn/started',{'turn':{'id':'t'}})
-    assert c.event('turn/completed',{'turn':{'id':'t','status':status}})==result
 
 @pytest.mark.parametrize('kw,state',[(dict(deadline=0,turns=0,tokens=0),'PAUSED_DEADLINE'),
  (dict(deadline=9999999999,turns=6,tokens=0),'PAUSED_BUDGET'),

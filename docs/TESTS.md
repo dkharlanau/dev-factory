@@ -1,6 +1,6 @@
 # Verification performed
 
-Final offline suite: **86 passed** on Python 3.11.16 / macOS arm64.
+Current offline suite: **91 passed** on Python 3.11.16 / macOS arm64.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.
@@ -32,8 +32,9 @@ and offline benchmark were exercised. No global plugin/skill was installed.
 Real Codex checks are enumerated in [live-smoke.json](receipts/live-smoke.json):
 three-request capability spike; bounded edit/test/review cycle with one review-environment
 repair; repeated command with no new model turn; completion-race and active-command
-interrupt probes. Eight child requests total. Real product runs and full live
-native-vs-Factory benchmarking were not performed.
+interrupt probes. Eight child requests total. Real product runs were not performed. The later explicit evaluation added five
+direct-native/Factory pairs, all passing common behavioral checks; Factory default
+full workflows completed 2/5. See [evaluation](benchmarks/RESULTS.md).
 
 Reproduce:
 
@@ -43,3 +44,27 @@ Reproduce:
 ./factory benchmark
 ./factory doctor --live  # explicit allowance use; idempotent smoke fixture
 ```
+
+## Evaluation regressions
+
+Added tests reproduce expired-deadline compaction dispatch and missing-usage role
+misattribution, then verify the fixes. Actual adapter-path tests cover persisted
+completion/no-op/failure/interruption/timeout. Unused context-policy/FSM tests were
+removed, so the count is not directly comparable to the old 86.
+
+Review rejection/repair, real-process dead lease, failure after local commit before
+validation, active-time exclusion of paused downtime, and explicit rejection of the
+inert automatic-compaction flag are covered. A dedicated private fixture also passed
+real push/PR recovery after two injected controller failures, with no repeated model
+turns or PR. Runtime pins remain 0.157.1.
+
+The separate long recovery probe confirmed active interruption, compaction completion,
+unchanged files through compaction and same-thread continuation. Its final code
+passed 916 tests and the independent oracle. The 500k experimental soft budget was
+exceeded before review (838548 cumulative observed tokens), so the workflow remains
+PAUSED_BUDGET; recovery through fresh review is only partially verified. Two tests
+also prevent completed evaluation scripts from redispatching work or overwriting
+the original receipts when invoked again.
+
+The relabeled legacy effort benchmark preserves its existing project/run identities;
+repeating it under a fake runtime reuses both receipts and adds zero model turns.

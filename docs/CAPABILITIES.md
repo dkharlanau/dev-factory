@@ -1,7 +1,8 @@
 # Capability evidence — 2026-09-26
 
 This matrix distinguishes documentation from local proof. Versions are not interchangeable.
-First smoke is limited to **three model-producing requests including compaction**; ordinary tests are offline.
+Initial setup smoke was limited to **three model-producing requests including compaction**.
+The later explicit evaluation is described in [benchmarks](benchmarks/RESULTS.md); ordinary tests remain offline.
 
 | Capability | Documented | Locally tested | Unsupported or unknown | Tested version | Evidence | Fallback |
 |---|---|---|---|---|---|---|
@@ -22,7 +23,7 @@ First smoke is limited to **three model-producing requests including compaction*
 | Skills in SDK worker environment | `skills/list` | Factory discovered after physical repo skill installation; dispatcher doctor passed | Discovery is not successful task execution | 0.157.1 | Inventory JSON | Explicit local skill path or handoff |
 | MCP / apps in child runtime | `mcpServerStatus/list` | GitHub connector tool names and multiple MCP servers visible | Invocation/permissions not established by inventory; Desktop codex_app has no tools | 0.157.1 | Inventory JSON | Required unavailable capability => NATIVE_HANDOFF |
 | Plugins | `plugin/list` | RPC responds on stable API | Packaging/discovery != tool functionality | 0.157.1 | Inventory JSON | Never install plugins automatically |
-| GitHub CLI | Authorized `gh` | gh 2.97.0 authenticated; all three repositories read | Remote writes not exercised | 2.97.0 | Read-only setup | Explicit local policy permits gh only; missing access blocks |
+| GitHub CLI | Authorized `gh` | gh 2.97.0 authenticated; all three repositories read | Real private fixture push/PR recovery; product writes unverified | 2.97.0 | Read-only setup | Explicit local policy permits gh only; missing access blocks |
 | Native context/subagents/profiles/review | [Native multi-agent](https://developers.openai.com/codex/multi-agent), config docs | SDK stable feature list/schema inspected | Efficiency advantage unmeasured | 0.157.1 | Native features metadata | Reuse native context/sandbox; one sequential Factory worker |
 | Worktrees | Native Git / Desktop facilities | Git available | Global exclusivity across humans/agents impossible | Local Git | Fixture integration tests | Factory-owned task worktree, local lock only |
 | Durable background execution | Not assumed | Foreground only | Closed app, sleep, killed process continuation unverified | MVP | Pause/resume tests | Explicit foreground resume |
@@ -52,10 +53,27 @@ The first smoke used exactly three model-producing requests, including compactio
 The end-to-end runner used three more (builder, blocked read-only review, repaired
 review environment), then a repeated run consumed none. Two tiny interrupt probes
 covered completion-race and active-command cancellation. Total setup child requests: 8.
-No full live benchmark ran. See `docs/receipts/live-smoke.json` for portable evidence;
+No full live benchmark ran during initial setup. See `docs/receipts/live-smoke.json` for portable evidence;
 full metadata/test logs remain in ignored `.factory/evidence` and `.factory/runs`.
 
 Manual compaction success was verified from persisted `thread/read` turn and
 contextCompaction item state. Its completion event stream and its complete token
-usage were not observed. No-op/error/duplicate/timeout boundaries have offline tests;
-no arbitrary active-context percentage is derived.
+usage were not observed. No-op/error/timeout/expired-deadline boundaries now have
+tests against the actual persisted-state adapter; the unused event FSM was removed.
+No arbitrary active-context percentage is derived.
+
+## Subsequent engineering evaluation
+
+Five direct-native/Factory task pairs at `6087606` passed common acceptance. Factory
+finished 2/5 reviewed workflows; three paused before review on its default soft budget.
+No natural compaction occurred. Effective model and attributable subscription cost
+remain unknown. See [results](benchmarks/RESULTS.md) and [portable receipts](benchmarks/results.json).
+
+A dedicated private GitHub fixture verified real push, draft PR, exact reviewed SHA,
+recovery after ambiguous push/PR completion, and duplicate suppression with no extra
+model turns. CI was absent, not passed. No product release was attempted.
+
+Automatic Factory early-compaction policy was never wired into Runner; it is now
+explicitly unsupported and its inert enabling flag is rejected. Native
+autocompaction and the explicit manual adapter remain. Initial setup evidence above
+is historical; later native-default model drift is recorded per experiment.

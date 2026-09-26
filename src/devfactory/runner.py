@@ -61,11 +61,15 @@ def role_usage(turns):
     for turn in turns:
         role=turn['role'];tid=turn['thread_id']
         current=(turn.get('usage') or {}).get('total',{})
-        values={k:(current[k]-previous.get(tid,{}).get(k,0) if current.get(k) is not None
-                   and current[k]>=previous.get(tid,{}).get(k,0) else None) for k in TOKEN_FIELDS}
+        prior=previous.get(tid)
+        values={}
+        for k in TOKEN_FIELDS:
+            old=0 if prior is None else prior.get(k)
+            value=current.get(k)
+            values[k]=value-old if value is not None and old is not None and value>=old else None
         if role not in groups:groups[role]=values
         else:groups[role]={k:groups[role][k]+values[k] if groups[role][k] is not None and values[k] is not None else None for k in TOKEN_FIELDS}
-        previous[tid]={k:v for k,v in current.items() if v is not None}
+        previous[tid]={k:current.get(k) for k in TOKEN_FIELDS}
     return groups
 
 
@@ -111,6 +115,7 @@ class Runner:
                     'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
                     'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
                     'escalations':0,'usage_threads':{},'started_at':time.time(),
+                    'active_execution_seconds':0,'active_execution_complete':True,
                     'deadline':queue_started+self.config['budget']['deadline_seconds'],
                     'remaining_turns':remaining_turns,'remaining_tokens':remaining_tokens,
                     'human_interventions':0,'acceptance':None,'review':None,'parent_chat_usage':None,
@@ -174,13 +179,19 @@ class Runner:
         logdir=self.store.path/'runs'/rid
         d.update(worktree=str(wt),branch=d.get('branch','codex/factory-'+rid))
         usage=Usage(d['usage_threads'])
+        execution_started=time.monotonic()
+        active_before=d.get('active_execution_seconds',0)
+        d.setdefault('active_execution_complete',False)
         old_signal=signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT,lambda *_: setattr(self,'interrupted',True))
         def paused(): return self.interrupted or self.store.paused(rid)
         def save(state):
             d['wall_seconds']=time.time()-d['started_at']
+            d['active_execution_seconds']=active_before+time.monotonic()-execution_started
             d['usage_threads']=usage.totals
             d['usage']=usage.aggregate()
+            observed=d['usage'].get('totalTokens')
+            d['soft_budget_overshoot_tokens']=max(0,observed-d['remaining_tokens']) if observed is not None else None
             d['usage_by_role']=role_usage(d['turns'])
             self.store.save(rid,state,d)
             self.store.heartbeat(rid,wt)
@@ -258,8 +269,15 @@ class Runner:
                         # Reviewer never receives builder response/history, only contract and facts.
                         if review: packet['diff_command']=['git','diff',d['base_sha']]
                         self.emit(f'Child worker: {selection.requested_model or "native/default"} / {selection.requested_effort or "native"}; parent chat model unchanged')
-                        result=rt.turn(tid,json.dumps(packet),selection,deadline=d['deadline'],should_pause=paused,
-                                       on_event=event,on_start=started,output_schema=SCHEMA,external=True)
+                        packet_text=json.dumps(packet)
+                        record['packet_utf8_bytes']=len(packet_text.encode())
+                        record['instruction_utf8_bytes']=len(instructions.encode())
+                        turn_started=time.monotonic()
+                        try:
+                            result=rt.turn(tid,packet_text,selection,deadline=d['deadline'],should_pause=paused,
+                                           on_event=event,on_start=started,output_schema=SCHEMA,external=True)
+                        finally:
+                            record['elapsed_seconds']=time.monotonic()-turn_started
                         if result.get('usage'): usage.observe(tid,result['usage'])
                         record.update({k:result.get(k) for k in ('turn_id','status','effective_model','resolved_model','usage','commands','compactions','error_code')})
                         d['in_flight']=None if result['status'] in ('completed','interrupted','failed') else d['in_flight']
@@ -270,6 +288,8 @@ class Runner:
                         except ValueError: raise Stop('BLOCKED_RESULT','Worker did not return the required structured verdict')
                         if not isinstance(verdict,dict) or verdict.get('verdict') not in ('PASS','REPAIR','BLOCKED'):
                             raise Stop('BLOCKED_RESULT','Invalid worker verdict')
+                        record['verdict']=verdict['verdict']
+                        record['findings']=verdict.get('findings',[])
                         actual_files=validate_scope(wt,d['base_sha'],plan['task']['paths'])
                         discovered_profile,discovered_risk=classify(dict(plan['task'],paths=actual_files),adapter.get('high_risk_paths',[]))
                         if discovered_risk=='high' and d['contract_hash'] not in adapter.get('approved_contracts',[]):
@@ -305,12 +325,14 @@ class Runner:
                         for name in names:
                             argv=adapter['checks'][name]
                             before_test=fingerprint(wt,d['base_sha'])
+                            test_started=time.monotonic()
                             result=rt.command(wt,argv,timeout=min(600,max(1,d['deadline']-time.time())),should_pause=paused)
+                            test_seconds=time.monotonic()-test_started
                             log=logdir/f'test-{len(d["tests"])+1}.log'
                             log.write_text(redact(result.get('stdout','')+'\n'+result.get('stderr','')))
                             log.chmod(0o600)
                             receipt={'check':name,'argv':argv,'exit_code':result.get('exitCode'),'log':str(log),
-                                     'fingerprint':fingerprint(wt,d['base_sha'])}
+                                     'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds}
                             d['tests'].append(receipt); save('VALIDATE')
                             if fingerprint(wt,d['base_sha']) != before_test:
                                 raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')

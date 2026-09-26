@@ -34,4 +34,6 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "Execution limits must be positive")
     if b.get("unknown_quota") != "pause" or not config["context"]["native_autocompaction"]:
         raise Stop("BLOCKED_POLICY", "Unknown quota must pause; native autocompaction remains enabled")
+    if config["context"].get("manual_compaction"):
+        raise Stop("BLOCKED_POLICY", "Automatic Factory compaction is not implemented; retain native autocompaction")
     return config

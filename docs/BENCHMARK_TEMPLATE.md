@@ -1,4 +1,8 @@
-# Native vs Factory — report template
+# Direct native vs Factory — report template
+
+Use `scripts/evaluation/run.py`; the legacy `factory benchmark --live` compares
+effort policies inside Factory and is not a native workflow baseline. See the
+[executed study](benchmarks/RESULTS.md).
 
 Date / SDK / runtime / OS:
 Sample size and task categories:
@@ -13,7 +17,9 @@ Variant isolation and order:
 | Acceptance success | | |
 | Retries / review defects | | |
 | Infrastructure failures | | |
-| Wall-clock seconds | | |
+| Workflow / active / paused seconds | | |
+| External assessment seconds | | |
+| Budget stop / review completed | | |
 | Input / cached input | | |
 | Output / reasoning output | | |
 | Cache writes / total | | |
