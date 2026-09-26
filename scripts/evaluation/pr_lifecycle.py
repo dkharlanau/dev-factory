@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+import os
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -16,7 +17,9 @@ from devfactory.tasks import resolve
 from devfactory.state import atomic_json,digest
 from devfactory.policy import Stop
 
-REPOSITORY='dkharlanau/devfactory-evaluation-20260926'
+REPOSITORY=os.environ.get('DEVFACTORY_PRIVATE_FIXTURE_REPOSITORY', '')
+if not REPOSITORY:
+    raise RuntimeError('Set DEVFACTORY_PRIVATE_FIXTURE_REPOSITORY to a dedicated private evaluation repository')
 AREA=ROOT/'.factory/evaluation/pr-lifecycle'
 
 

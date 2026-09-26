@@ -119,10 +119,10 @@
         "isDraft": true,
         "number": 1,
         "state": "OPEN",
-        "url": "https://github.com/dkharlanau/devfactory-evaluation-20260926/pull/1"
+        "url": "private fixture draft PR #1 (URL withheld)"
       },
       "reason": "Acceptance checks and fresh review passed; product release remains separate",
-      "remote_repo": "dkharlanau/devfactory-evaluation-20260926",
+      "remote_repo": "private-test-fixture",
       "repeat": {
         "receipt": "<DEVFACTORY_ROOT>/.factory/evaluation/pr-lifecycle/runs/a66ddbc1e2854bf1/receipt.json",
         "run_id": "a66ddbc1e2854bf1",

@@ -38,7 +38,7 @@ Keep native model mappings and current effort profiles for now. The data do not 
 
 ## Risk-path experiments
 
-Private fixture [draft PR #1](https://github.com/dkharlanau/devfactory-evaluation-20260926/pull/1) reached task → isolated worktree → implementation → local commit → tests → fresh review → push → PR. The commit occurs before validation/review so the exact committed SHA is reviewed. Controlled failures after push and after remote PR creation recovered to PR_OPENED with exactly two model turns throughout. Repeating the command returned EXISTING_COMPLETION; GitHub contains one PR for that branch. Reviewed HEAD equals remote PR HEAD `5288b9fc4be9da052fb5d545597bac5df3bc601f`.
+Dedicated private fixture draft PR #1 (repository identifier withheld) reached task → isolated worktree → implementation → local commit → tests → fresh review → push → PR. The commit occurs before validation/review so the exact committed SHA is reviewed. Controlled failures after push and after remote PR creation recovered to PR_OPENED with exactly two model turns throughout. Repeating the command returned EXISTING_COMPLETION; GitHub contains one PR for that branch. Reviewed HEAD equals remote PR HEAD `5288b9fc4be9da052fb5d545597bac5df3bc601f`.
 
 The repository is private and new, with no workflow files, hooks or deployments. GitHub reports zero workflow runs and no check rollup. That means CI is absent, not passed. No merge or deployment was performed. Product repositories were untouched.
 
