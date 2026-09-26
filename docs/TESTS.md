@@ -1,6 +1,6 @@
 # Verification performed
 
-Current offline suite: **96 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Current offline suite: **97 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.
@@ -66,5 +66,6 @@ PAUSED_BUDGET; recovery through fresh review is only partially verified. Two tes
 also prevent completed evaluation scripts from redispatching work or overwriting
 the original receipts when invoked again.
 
-The relabeled legacy effort benchmark preserves its existing project/run identities;
+The live routing benchmark preserves its existing project/run identities while
+comparing native versus policy-v2 model/effort routing inside the same Runner;
 repeating it under a fake runtime reuses both receipts and adds zero model turns.

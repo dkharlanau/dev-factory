@@ -19,9 +19,10 @@
   unknown. Cumulative tokens are not context occupation. Requested/resolved model is
   not proven serving model; effective model stays null without reroute telemetry.
 - Quota is account-wide. Unknown relevant allowance pauses. No paid fallback, credits
-  purchase or reset-credit action exists. Token soft budgets gate the next turn; one
-  turn can cross the threshold. The tested cycle used 194,779 observed tokens against
-  a 150,000 soft threshold because its last review began below that threshold.
+  purchase or reset-credit action exists. In policy v2 the soft token envelope limits
+  additional queue work, while a started task may finish its bounded review/repair gate
+  when `finish_started_task=true`; deadline, turn count and quota remain dispatch gates.
+  The historical 194,779/150,000 pause belongs to the earlier policy.
 - The parent Desktop conversation and setup overhead are unmeasured. Final completion
   cost includes failed attempts and repeated review, not just the successful builder.
 - Product adapters read current repo identity/default SHA/instructions/PRs/issues.
@@ -49,14 +50,15 @@
 - One foreground worker per installation. Persistence after closing Codex, sleep or
   termination is not promised. A live lease is not stolen even after a long sleep.
 - Five direct-native/Factory pairs ran through the explicit evaluation harness; one
-  repetition per case and one Python library cannot establish broad savings. Default
-  Factory workflows completed 2/5; all output trees passed common checks. The old
-  `benchmark --live` compares effort profiles inside Factory, not workflows.
-  Offline benchmark remains policy-only with zero model performance samples.
+  repetition per case and one Python library cannot establish broad savings. The older
+  Factory workflows completed 2/5; all output trees passed common checks.
+  `benchmark --live` now compares model/effort routing inside Factory, not workflow
+  or harness overhead. Offline benchmark remains policy-only with zero model performance samples.
 - Active-time metrics are complete only for runs created after instrumentation. Old
   receipts cannot retroactively separate paused time or missing role-level usage.
 
-- The long-task recovery stress probe used a separately declared 500k soft ceiling,
-  then reported 838548 cumulative tokens after same-thread continuation. Code and
-  behavioral checks passed, but review was budget-blocked. Full recovered workflow
-  completion remains partially verified. Compaction-specific usage is unknown.
+- The long-task recovery stress probe used the older policy with a separately declared
+  500k soft ceiling, then reported 838548 cumulative tokens after same-thread
+  continuation. Code and behavioral checks passed, but review was historically
+  budget-blocked. Policy v2 changes that dispatch rule; a comparable live recovery run
+  has not yet been repeated. Compaction-specific usage remains unknown.

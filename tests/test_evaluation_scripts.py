@@ -28,5 +28,5 @@ def test_legacy_profile_benchmark_keeps_existing_run_identities(cfg,monkeypatch)
     count=len(FakeRuntime.turns)
     second=benchmark(cfg,live=True)
     assert count==4 and len(FakeRuntime.turns)==count
-    assert first['comparison_scope']=='effort profiles inside Factory'
+    assert first['comparison_scope']=='model/effort routing inside Factory'
     assert [v['receipt_id'] for v in first['variants']]==[v['receipt_id'] for v in second['variants']]

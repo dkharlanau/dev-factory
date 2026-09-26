@@ -18,6 +18,17 @@ def test_model_ladder_uses_first_available_candidate(cfg):
     assert s.requested_model=='fixture-model' and s.requested_effort=='low'
     assert 'first available' in s.reason
 
+def test_legacy_scalar_model_override_replaces_inherited_ladder(tmp_path):
+    from devfactory.config import load
+    local=tmp_path/'factory.local.toml'
+    local.write_text('[profiles.fast]\nmodel = "native"\neffort = "medium"\n')
+    loaded=load(tmp_path,local)
+    assert loaded['profiles']['fast']['model']=='native'
+    assert 'models' not in loaded['profiles']['fast']
+    local.write_text('[profiles.fast]\nmodel = "native"\nmodels = ["native"]\n')
+    with pytest.raises(Stop,match='both model and models'): load(tmp_path,local)
+
+
 def test_native_baseline_keeps_effort(cfg):
     s=choose_model('fast',cfg,CATALOG,{'model':'fixture-model'},baseline=True)
     assert s.requested_model is None and s.requested_effort is None

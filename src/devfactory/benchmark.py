@@ -9,9 +9,9 @@ from .state import atomic_json
 def benchmark(config,live=False):
     result={'mode':'live' if live else 'offline','sample_size':0,'real_codex':live,
             'efficiency_claim':None,'parent_chat_usage':'unmeasured',
-            'comparison_scope':'effort profiles inside Factory' if live else 'offline policy validation',
+            'comparison_scope':'model/effort routing inside Factory' if live else 'offline policy validation',
             'attribution':'Account-wide allowance changes cannot be attributed to a run',
-            'interpretation':'No evidence of resource savings. Preserve native model defaults.'}
+            'interpretation':'No live savings claim; validate routing deterministically and use paired live evidence.'}
     if not live:
         # Synthetic cases verify methodology and routing. They do not estimate performance.
         from .policy import classify
@@ -48,7 +48,7 @@ def benchmark(config,live=False):
                 try: run=saved.get(run['run_id'])
                 finally: saved.close()
             d=run.get('data',{})
-            variants.append({'variant':'native-effort-in-factory' if baseline else 'routed-effort-in-factory','starting_commit':adapter['base_sha'],
+            variants.append({'variant':'native-model-effort-in-factory' if baseline else 'routed-model-effort-in-factory','starting_commit':adapter['base_sha'],
                 'task_category':d.get('task_category'),'state':run['state'],
                 'requested_effective_models':[{k:t.get(k) for k in ('requested_model','effective_model','requested_effort','role')} for t in d.get('turns',[])],
                 'acceptance':d.get('acceptance'),'retry_count':d.get('repairs'),
@@ -56,7 +56,7 @@ def benchmark(config,live=False):
                 'usage':d.get('usage'),'human_interventions':d.get('human_interventions'),
                 'receipt_id':run.get('id')})
         result.update(variants=variants,sample_size=1,
-                      interpretation='Both arms use Factory Runner; this only compares effort policy. Direct-native workflow evaluation: scripts/evaluation/run.py.')
+                      interpretation='Both arms use Factory Runner; this compares model/effort routing, not harness overhead. Direct-native workflow evaluation: scripts/evaluation/run.py.')
     path=Path(config['state_dir'])/'evidence'/('benchmark-live.json' if live else 'benchmark-offline.json')
     atomic_json(path,result);result['report']=str(path)
     return result

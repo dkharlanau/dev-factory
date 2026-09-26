@@ -103,6 +103,10 @@ def test_repair_limit(cfg):
         r=runner.run('demo')[0]
         assert r['state']=='BLOCKED_REPAIR_LIMIT'
         assert r['data']['repairs']==2 and r['data']['escalations']==1
+        assert r['data']['routing_upgrades']==1
+        assert [h['profile'] for h in FakeRuntime.history]==['fast','standard','deep']
+        repair=next(t['packet'] for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert repair['validation'][0]['failure_excerpt']=='fixture assertion failed'
         assert len(FakeRuntime.turns)==3
     finally:runner.close()
 

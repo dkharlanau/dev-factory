@@ -19,7 +19,14 @@ def load(root: Path, local: Path | None = None):
     config = tomllib.loads(files("devfactory").joinpath("defaults.toml").read_text())
     path = local or Path(os.environ.get("FACTORY_CONFIG", root / "factory.local.toml"))
     if path.exists():
-        merge(config, tomllib.loads(path.read_text()))
+        override = tomllib.loads(path.read_text())
+        for name, profile in (override.get("profiles") or {}).items():
+            if isinstance(profile, dict) and "model" in profile and "models" in profile:
+                raise Stop("BLOCKED_POLICY", f"Profile {name} cannot define both model and models")
+            if isinstance(profile, dict) and "model" in profile:
+                # Legacy scalar override intentionally replaces the inherited v2 ladder.
+                config.get("profiles", {}).get(name, {}).pop("models", None)
+        merge(config, override)
     config["root"] = str(root.resolve())
     config["local_config"] = str(path.resolve())
     config["state_dir"] = str(Path(config.get("state_dir", root / ".factory")).expanduser().resolve())

@@ -75,12 +75,22 @@ def role_usage(turns):
 
 
 def validation_summary(tests):
-    """Latest outcome per named check; omit log paths/fingerprints from model context."""
+    """Latest bounded outcome per check; omit log paths/fingerprints from model context."""
     latest = {}
     for item in tests:
-        latest[item['check']] = {'check': item['check'], 'stage': item.get('stage'),
-                                 'exit_code': item.get('exit_code')}
+        row = {'check': item['check'], 'stage': item.get('stage'),
+               'exit_code': item.get('exit_code')}
+        if item.get('failure_excerpt'):
+            row['failure_excerpt'] = item['failure_excerpt']
+        latest[item['check']] = row
     return list(latest.values())
+
+
+def failure_excerpt(result, limit=1600):
+    if result.get('exitCode') == 0:
+        return None
+    text = redact((result.get('stdout','')+'\n'+result.get('stderr','')).strip())
+    return text[-limit:] if text else None
 
 
 def packet_for_phase(plan, d, phase, adapter, wt):
@@ -145,7 +155,7 @@ class Runner:
                     'base_branch':plan['base_branch'],'repository':plan['repository'],
                     'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
                     'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
-                    'escalations':0,'usage_threads':{},'started_at':time.time(),
+                    'escalations':0,'routing_upgrades':0,'usage_threads':{},'started_at':time.time(),
                     'active_execution_seconds':0,'active_execution_complete':False,
                     'deadline':queue_started+self.config['budget']['deadline_seconds'],
                     'remaining_turns':remaining_turns,'remaining_tokens':remaining_tokens,
@@ -377,7 +387,8 @@ class Runner:
                                 log.write_text(redact(result.get('stdout','')+'\n'+result.get('stderr','')))
                                 log.chmod(0o600)
                                 receipt={'check':name,'stage':stage,'argv':argv,'exit_code':result.get('exitCode'),'log':str(log),
-                                         'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds}
+                                         'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds,
+                                         'failure_excerpt':failure_excerpt(result)}
                                 d['tests'].append(receipt); stage_receipts.append(receipt); save('VALIDATE')
                                 if fingerprint(wt,d['base_sha']) != before_test:
                                     raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')
@@ -420,6 +431,10 @@ class Runner:
         if decision=='ESCALATE':
             d['profile']='deep'; d['escalations']+=1
             d['escalation_reason']='Two meaningful implementation/validation/review failures'
+        elif d['profile']=='fast':
+            # A verified failure is evidence that Luna is no longer the efficient choice.
+            d['profile']='standard'; d['routing_upgrades']=d.get('routing_upgrades',0)+1
+            d['escalation_reason']='First fast-profile failure promoted repair to standard'
         d['repairs']+=1; d['phase']='repair'
 
     def _integrate(self,rid,d,plan,wt,adapter):
