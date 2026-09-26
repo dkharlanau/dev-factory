@@ -54,10 +54,14 @@ def test_usage_cumulative_duplicate_nested_and_missing():
     u.totals['b']={}; assert u.aggregate()['totalTokens'] is None
     assert Usage().aggregate()['inputTokens'] is None
 
-@pytest.mark.parametrize('kw,state',[(dict(deadline=0,turns=0,tokens=0),'PAUSED_DEADLINE'),
- (dict(deadline=9999999999,turns=6,tokens=0),'PAUSED_BUDGET'),
- (dict(deadline=9999999999,turns=0,tokens=150000),'PAUSED_BUDGET')])
-def test_budgets(cfg,kw,state):
+@pytest.mark.parametrize('kind,state',[('deadline','PAUSED_DEADLINE'),
+                                                ('turns','PAUSED_BUDGET'),
+                                                ('tokens','PAUSED_BUDGET')])
+def test_budgets(cfg,kind,state):
+    kw=dict(deadline=9999999999,turns=0,tokens=0)
+    if kind=='deadline': kw['deadline']=0
+    elif kind=='turns': kw['turns']=cfg['budget']['max_turns']
+    else: kw['tokens']=cfg['budget']['soft_tokens']
     with pytest.raises(Stop) as e: check_budget(cfg['budget'],**kw)
     assert e.value.state==state
 

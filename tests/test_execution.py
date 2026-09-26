@@ -62,6 +62,26 @@ def test_soft_token_envelope_does_not_skip_mandatory_review(cfg):
     finally: runner.close()
 
 
+def test_focused_failure_skips_broad_final_checks(cfg):
+    broad=['python','-c','print("broad")']
+    cfg['projects']['demo']['checks']['broad']=broad
+    cfg['projects']['demo']['final_checks']=['unit','broad']
+    class RecordingRuntime(FakeRuntime):
+        calls=[]
+        def command(self,cwd,argv,**kwargs):
+            self.calls.append(argv)
+            if argv==cfg['projects']['demo']['checks']['unit']:
+                return {'exitCode':1,'stdout':'focused failure','stderr':''}
+            return {'exitCode':0,'stdout':'','stderr':''}
+    runner=Runner(cfg,runtime_factory=RecordingRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='BLOCKED_REPAIR_LIMIT'
+        assert RecordingRuntime.calls
+        assert broad not in RecordingRuntime.calls
+    finally: runner.close()
+
+
 def test_repair_limit(cfg):
     FakeRuntime.fail_tests=True
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
