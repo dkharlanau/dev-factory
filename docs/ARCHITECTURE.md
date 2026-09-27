@@ -33,14 +33,17 @@ to the deep profile. Native baseline still omits both model and effort overrides
 Both benchmark variants use identical tools, acceptance, tests and starting commit,
 with separate worktrees/threads and no solution or receipt sharing.
 
-Builder repair turns stay in the same native thread and receive only delta evidence;
-fresh reviewers receive the full bounded contract plus summarized check outcomes and
-inspect the diff themselves. Turn limits are two-level: each task is independently
-bounded by `max_turns`, while `max_queue_turns` caps aggregate autonomous work across
-the foreground queue; the token envelope and deadline remain queue-wide. This preserves a stable prompt prefix and avoids replaying
-log paths, fingerprints and the whole contract on every repair. Deterministic
-validation is staged: focused task checks first, broad final checks only after the
-focused stage passes.
+Builder repair turns stay in the same native thread and receive only delta evidence.
+Fresh reviewers receive the bounded implementation contract, summarized check outcomes,
+task-relevant guidance paths and diff access. Controller-only routing metadata and
+unrelated backlog authority are not copied into model context. Review is evidence-first:
+a passing controller check is rerun only for a concrete unresolved concern. Turn limits
+are two-level: each task is independently bounded by `max_turns`, while
+`max_queue_turns` caps aggregate autonomous work across the foreground queue; the
+token envelope and deadline remain queue-wide. This preserves a stable prompt prefix
+and avoids replaying logs, policy metadata and the whole contract on every repair.
+Deterministic validation is staged: focused task checks first, broad final checks only
+after the focused stage passes.
 
 Current repository/GitHub data is task authority. An optional `factory-task` JSON
 contract in an existing issue/backlog makes acceptance and file scope deterministic;

@@ -22,6 +22,7 @@ def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
         d=result['data']
         assert d['builder_thread']!=d['reviewer_thread']
         assert FakeRuntime.history[-1]['resume'] is None
+        assert 'do not duplicate controller validation' in FakeRuntime.history[-1]['instructions']
         assert 'builder_response' not in FakeRuntime.turns[-1]['packet']
         assert (repo/'foreign.txt').read_text()=='preserve me'
         assert (repo/'clamp.py').read_text().endswith('return value\n')
@@ -44,6 +45,9 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
         assert r['state']=='READY_LOCAL'
         build=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')['packet']
         repair=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')['packet']
+        assert set(build['task'])=={'id','description','acceptance','paths'}
+        assert build['guidance_files']==['AGENTS.md']
+        assert 'BACKLOG.md' not in build['guidance_files']
         assert 'task' in build and 'task' not in repair and repair['task_id']=='clamp-v1'
         assert len(json.dumps(repair,separators=(',',':'))) < len(json.dumps(build,separators=(',',':')))
         assert FakeRuntime.history[-1]['profile']=='deep'

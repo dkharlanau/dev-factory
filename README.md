@@ -143,12 +143,15 @@ the live-verified ladder.
 
 One worker, up to six turns **per task**, up to 60 turns per foreground queue,
 a 30-minute queue deadline, 500,000 observable-token **soft queue envelope**, two
-repair rounds, one escalation and 10% allowance reserve are starting defaults. With `finish_started_task=true`, the soft token envelope stops
-additional queue work but does not strand an already-started task before its bounded
-review/repair gate. Deadline, turn count and quota remain hard dispatch gates. Repair
-turns reuse the builder thread and send delta evidence rather than replaying the full
-contract; packets use compact JSON. Focused checks run before broad final checks, so a
-known focused failure does not spend time on the final suite.
+repair rounds, one escalation and 10% allowance reserve are starting defaults. With
+`finish_started_task=true`, the soft token envelope stops additional queue work but
+does not strand an already-started task before its bounded review/repair gate. Deadline,
+turn count and quota remain hard dispatch gates. Repair turns reuse the builder thread
+and send delta evidence rather than replaying the full contract. Model-facing task
+packets contain only the implementation contract fields needed by the worker; controller
+routing metadata and unrelated backlog authority stay out of model context. Review is
+evidence-first: passing controller checks are not repeated unless the reviewer has a
+specific unresolved concern. Focused checks run before broad final checks.
 
 Current context utilization, serving model without telemetry, and parent-chat usage
 are reported as unknown. Receipts include per-turn/check durations, active execution
