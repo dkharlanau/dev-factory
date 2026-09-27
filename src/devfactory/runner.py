@@ -114,7 +114,6 @@ def packet_for_phase(plan, d, phase, adapter, wt):
     if phase != 'repair':
         return full_text, 'full', 0
     delta = {'task_id': plan['task']['id'], 'role': 'repair',
-             'acceptance': plan['task']['acceptance'],
              'changed_files': changed(wt, d['base_sha']),
              'validation': validation_summary(d['tests']),
              'concrete_findings': d.get('findings', [])}

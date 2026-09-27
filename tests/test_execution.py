@@ -49,6 +49,7 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
         assert build['guidance_files']==['AGENTS.md']
         assert 'BACKLOG.md' not in build['guidance_files']
         assert 'task' in build and 'task' not in repair and repair['task_id']=='clamp-v1'
+        assert 'acceptance' not in repair # persistent builder thread already owns the immutable contract
         assert len(json.dumps(repair,separators=(',',':'))) < len(json.dumps(build,separators=(',',':')))
         build_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')
         repair_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')
