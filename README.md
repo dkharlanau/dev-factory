@@ -336,6 +336,9 @@ requires paired Phase A/direct-native evaluation with task/oracle success, revie
 model-turn counts, input/cached/output tokens, latency and completion receipts. Unknown telemetry
 remains unknown.
 
+The first [local paired experiment](docs/benchmarks/PHASE_B.md) did not establish quality
+non-inferiority, so this path remains experimental and disabled by default.
+
 Composition, integration review, and explicit remote integration share the ordinary runner's global worker lock and
 lease. Their run IDs appear in `status`/`report`; `pause <run-id>` requests a review
 pause and `resume <run-id>` reconciles the saved batch operation. A live lease is never
