@@ -68,3 +68,45 @@ def test_optional_history_failure_is_unknown_and_blocks_cross_root_grouping(cfg,
     assert any(f['code']=='COCHANGE_UNAVAILABLE' for f in profile['findings'])
     assert not roots_related({'src'},{'tests'},profile)
     assert roots_related({'src'},{'src'},profile)
+
+
+def test_inventory_timeout_uses_only_declared_navigation_and_unknown_metrics(cfg,monkeypatch):
+    import devfactory.navigation as module
+    original=module.git
+    calls=[]
+    def failed_inventory(path,*args,**kwargs):
+        if 'ls-tree' in args:
+            calls.append(args)
+            raise Stop('BLOCKED_INFRASTRUCTURE','TimeoutExpired: git')
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(module,'git',failed_inventory)
+    project=cfg['projects']['demo']
+    profile=analyze_repository(project['path'],project['base_sha'],configured_cold_paths=['archive/'])
+    assert profile['metrics']['tracked_files'] is None
+    assert profile['metrics']['tracked_bytes'] is None
+    assert profile['inventory_status']['state']=='unavailable'
+    assert not roots_related({'src'},{'tests'},profile)
+    registry,nav=repository_registry(project['path'],project['base_sha'],['clamp.py'],
+                                    guidance_files=['AGENTS.md'],profile=profile)
+    assert registry['file_count'] is None and registry['cold_excluded'] is None
+    assert nav['files']==['clamp.py','AGENTS.md']
+    assert len(calls)==1  # No repeat full-tree scan after a known unavailable inventory.
+
+
+def test_inventory_timeout_does_not_skip_required_task_validation(cfg,monkeypatch):
+    import devfactory.navigation as module
+    from devfactory.runner import Runner
+    from fakes import FakeRuntime
+    original=module.git
+    def failed_inventory(path,*args,**kwargs):
+        if 'ls-tree' in args:raise Stop('BLOCKED_INFRASTRUCTURE','TimeoutExpired: git')
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(module,'git',failed_inventory)
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        run=runner.run('demo')[0]
+        assert run['state']=='READY_LOCAL'
+        assert run['data']['repo_registry']['file_count'] is None
+        assert run['data']['tests'] and all(t['exit_code']==0 for t in run['data']['tests'])
+        assert run['data']['review']=='PASS'
+    finally:runner.close()

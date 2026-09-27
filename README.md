@@ -295,3 +295,6 @@ Recovered usage is explicitly incomplete when final telemetry was not observed.
 Planning checks task authority before computing a repository profile. Unavailable or
 timed-out co-change history is recorded as unknown; batching then requires shared task
 roots and cannot infer cross-root relationships from missing history.
+If the optional full-tree hygiene scan is unavailable, its counts and byte totals
+stay unknown and navigation includes only declared task/guidance paths. Authority,
+scope, source fingerprints, required checks and independent review still run.
