@@ -103,6 +103,30 @@ def test_batch_refuses_base_mismatch(cfg):
         validate_reviewed_slices([runs[0],other])
 
 
+def test_integration_receipt_rejects_changed_gate_config(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BATCH_READY_LOCAL'
+    cfg['projects']['demo']['checks']['other']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['other']
+    with pytest.raises(Stop,match='policy/check configuration changed'):
+        review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+
+
+def test_batch_reviewer_cannot_modify_review_snapshot(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    class EditingReviewer(FakeRuntime):
+        def turn(self,tid,text,selection,**kwargs):
+            packet=json.loads(text)
+            if packet['role']=='review':
+                (self.cwd/'clamp.py').write_text('tampered by reviewer\n')
+            return super().turn(tid,text,selection,**kwargs)
+    with pytest.raises(Stop,match='modified its isolated snapshot'):
+        review_composed_batch(cfg,batch,runtime_factory=EditingReviewer)
+
+
 def test_batch_refuses_reviewed_worktree_drift(cfg):
     runs=reviewed_pair(cfg)
     Path(runs[0]['data']['worktree'],'clamp.py').write_text('foreign drift\n')

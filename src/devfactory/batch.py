@@ -1,6 +1,7 @@
 """Deterministic composition of already-reviewed slices; no model or remote writes."""
 from __future__ import annotations
 import json
+import time
 from pathlib import Path
 
 from .policy import Stop, Usage, check_quota, choose_model, scopes_overlap
@@ -18,19 +19,23 @@ def validate_reviewed_slices(runs):
     if len(runs) < 2:
         raise Stop('BLOCKED_BATCH','Batch composition requires at least two reviewed slices')
     ordered=sorted(runs,key=lambda r:r['id'])
-    first=ordered[0]['data']
-    base=first['base_sha']; project=first['project']
-    repo_path=Path(first['repository']['path']).resolve()
-    base_branch=first['base_branch']
-    seen_scopes=[];expected_files=[];children=[]
     for run in ordered:
         d=run['data']
         if run['state']!='READY_LOCAL' or d.get('acceptance') is not True or d.get('review')!='PASS':
             raise Stop('BLOCKED_BATCH','Every batch slice must be READY_LOCAL with passed acceptance/review')
-        if d.get('project')!=project or d.get('base_sha')!=base or d.get('base_branch')!=base_branch:
-            raise Stop('BLOCKED_BATCH','Batch slices must share project, base SHA and base branch')
-        if Path(d['repository']['path']).resolve()!=repo_path:
-            raise Stop('BLOCKED_BATCH','Batch slices must share the exact repository checkout')
+    projects={r['data'].get('project') for r in ordered}
+    bases={r['data'].get('base_sha') for r in ordered}
+    branches={r['data'].get('base_branch') for r in ordered}
+    repositories={str(Path(r['data']['repository']['path']).resolve()) for r in ordered}
+    if len(projects)!=1 or len(bases)!=1 or len(branches)!=1:
+        raise Stop('BLOCKED_BATCH','Batch slices must share project, base SHA and base branch')
+    if len(repositories)!=1:
+        raise Stop('BLOCKED_BATCH','Batch slices must share the exact repository checkout')
+    project=next(iter(projects));base=next(iter(bases));base_branch=next(iter(branches))
+    repo_path=Path(next(iter(repositories)))
+    seen_scopes=[];expected_files=[];children=[]
+    for run in ordered:
+        d=run['data']
         scopes=d.get('subsystem') or []
         if not scopes or scopes_overlap(seen_scopes,scopes):
             raise Stop('BLOCKED_BATCH','Batch slice declared scopes overlap')
@@ -48,6 +53,8 @@ def validate_reviewed_slices(runs):
         contract=d.get('task_contract')
         if not isinstance(contract,dict) or set(contract)!={'id','description','acceptance','paths'}:
             raise Stop('BLOCKED_BATCH','Reviewed slice lacks the immutable model-facing task contract')
+        if contract.get('id')!=d.get('task_id') or contract.get('paths')!=scopes:
+            raise Stop('BLOCKED_RECONCILIATION','Reviewed slice contract no longer matches saved task scope')
         children.append({'run_id':run['id'],'task_id':d['task_id'],'contract_hash':d['contract_hash'],
                          'task_contract':contract,'reviewed_fingerprint':d['reviewed_fingerprint'],
                          'worktree':str(wt),'scopes':scopes,'files':actual,'risk':d.get('risk'),
@@ -110,24 +117,29 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
         raise Stop('BLOCKED_RECONCILIATION','Composed batch worktree changed before integration review')
     root=Path(config['state_dir']).resolve()/'batches'/composition['batch_id']
     receipt=root/'integration.json'
-    if receipt.exists():
-        saved=json.loads(receipt.read_text())
-        if saved.get('composition_fingerprint')!=composition['combined_fingerprint']:
-            raise Stop('BLOCKED_RECONCILIATION','Saved batch integration receipt belongs to another composition')
-        if fingerprint(wt,base)!=saved.get('composition_fingerprint'):
-            raise Stop('BLOCKED_RECONCILIATION','Batch worktree changed after integration receipt')
-        return saved
-
     names=list(dict.fromkeys(adapter.get('final_checks',[])))
     checks=adapter.get('checks',{})
     if not names or any(name not in checks for name in names):
         raise Stop('BLOCKED_POLICY','Batch integration requires configured final checks')
-    deadline=__import__('time').time()+config['budget']['deadline_seconds']
+    gate_hash=digest({'policy_version':config.get('policy_version'),
+                      'profiles':config.get('profiles'),
+                      'final_checks':[(name,checks[name]) for name in names]})
+    if receipt.exists():
+        saved=json.loads(receipt.read_text())
+        if saved.get('composition_fingerprint')!=composition['combined_fingerprint']:
+            raise Stop('BLOCKED_RECONCILIATION','Saved batch integration receipt belongs to another composition')
+        if saved.get('gate_hash')!=gate_hash:
+            raise Stop('BLOCKED_RECONCILIATION','Batch integration policy/check configuration changed')
+        if fingerprint(wt,base)!=saved.get('composition_fingerprint'):
+            raise Stop('BLOCKED_RECONCILIATION','Batch worktree changed after integration receipt')
+        return saved
+
+    deadline=time.time()+config['budget']['deadline_seconds']
     final_receipts=[]
     with runtime_factory(wt) as rt:
         for name in names:
             before=fingerprint(wt,base)
-            result=rt.command(wt,checks[name],timeout=min(600,max(1,deadline-__import__('time').time())))
+            result=rt.command(wt,checks[name],timeout=min(600,max(1,deadline-time.time())))
             row={'check':name,'exit_code':result.get('exitCode'),
                  'failure_excerpt':failure_excerpt(result)}
             final_receipts.append(row)
@@ -135,7 +147,7 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
                 raise Stop('BLOCKED_VALIDATION','Combined final validation changed source files')
             if result.get('exitCode')!=0:
                 out={'state':'BLOCKED_BATCH_VALIDATION','batch_id':composition['batch_id'],
-                     'composition_fingerprint':composition['combined_fingerprint'],
+                     'composition_fingerprint':composition['combined_fingerprint'],'gate_hash':gate_hash,
                      'final_checks':final_receipts,'review':None,'model_turns':0}
                 atomic_json(receipt,out)
                 return out
@@ -147,7 +159,8 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
                  c.get('repairs',0)>0 or c.get('escalations',0)>0 for c in children)
         profile='deep' if deep else 'review'
         selection=choose_model(profile,config,rt.catalog,rt.native,high_risk=deep)
-        review_dir=root/'integration-review'
+        attempts=sorted(root.glob('integration-review-*'))
+        review_dir=root/f'integration-review-{len(attempts)+1}'
         before_review=fingerprint(wt,base)
         review_snapshot(wt,review_dir,base)
         review_fingerprint=fingerprint(review_dir,base)
@@ -166,7 +179,7 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
             if method=='thread/tokenUsage/updated':
                 usage.observe(payload['threadId'],payload['tokenUsage'])
         result=rt.turn(tid,raw,selection,deadline=deadline,on_event=event,
-                       output_schema=SCHEMA,external=True)
+                       on_start=lambda *_: None,output_schema=SCHEMA,external=True)
         if result.get('usage'): usage.observe(tid,result['usage'])
         if result['status']!='completed':
             raise Stop('BLOCKED_RUNTIME','Batch integration review turn did not complete')
@@ -181,6 +194,7 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
         passed=verdict['verdict']=='PASS' and not verdict.get('findings')
         out={'state':'BATCH_READY_LOCAL' if passed else 'BLOCKED_BATCH_REVIEW',
              'batch_id':composition['batch_id'],'composition_fingerprint':composition['combined_fingerprint'],
+             'gate_hash':gate_hash,
              'final_checks':final_receipts,'review':verdict['verdict'],
              'review_summary':redact(str(verdict.get('summary','')))[:1200],
              'findings':verdict.get('findings',[]),'reviewer':selection.dict(),
