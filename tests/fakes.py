@@ -31,7 +31,12 @@ class FakeRuntime:
         self.turns.append({'thread':tid,'packet':packet})
         turn='turn-'+str(len(self.turns)); on_start(tid,turn)
         if role!='review':
-            (self.cwd/'clamp.py').write_text('def clamp(value, low, high):\n    if low > high: raise ValueError("bounds")\n    return max(low,min(value,high))\n')
+            paths=(packet.get('task') or {}).get('paths') or ['clamp.py']
+            target=self.cwd/paths[0];target.parent.mkdir(parents=True,exist_ok=True)
+            if paths[0]=='clamp.py':
+                target.write_text('def clamp(value, low, high):\n    if low > high: raise ValueError("bounds")\n    return max(low,min(value,high))\n')
+            else:
+                target.write_text('fixture change\n')
         usage={'total':{'inputTokens':100,'cachedInputTokens':20,'outputTokens':30,'reasoningOutputTokens':10,'totalTokens':130},'modelContextWindow':1000}
         on_event('thread/tokenUsage/updated',{'threadId':tid,'tokenUsage':usage})
         verdict=self.outcomes.pop(0) if self.outcomes else {'verdict':'PASS','findings':[],'summary':'fixture'}

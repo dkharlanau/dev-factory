@@ -44,7 +44,9 @@ unrelated backlog authority are not copied into model context. Review is evidenc
 a passing controller check is rerun only for a concrete unresolved concern. Turn limits
 are two-level: each task is independently bounded by `max_turns`, while
 `max_queue_turns` caps aggregate autonomous work across the foreground queue; the
-token envelope and deadline remain queue-wide. This preserves a stable prompt prefix
+token envelope and deadline remain queue-wide. Queued tasks must also have disjoint
+declared scopes. An overlap stops before another model turn because independently
+reviewed worktrees from the same base are not a safe implicit merge. This preserves a stable prompt prefix
 and avoids replaying logs, policy metadata and the whole contract on every repair.
 Deterministic validation is staged: focused task checks first, broad final checks only
 after the focused stage passes.

@@ -53,6 +53,13 @@ def validate_scope(worktree, base, allowed):
     return names
 
 
+def scopes_overlap(left, right):
+    def pair(a,b):
+        a,b=a.rstrip('/'),b.rstrip('/')
+        return a==b or a.startswith(b+'/') or b.startswith(a+'/')
+    return any(pair(a,b) for a in left for b in right)
+
+
 def role_usage(turns):
     from .policy import TOKEN_FIELDS
     groups={}
@@ -129,6 +136,7 @@ class Runner:
             raise Stop('BLOCKED_POLICY','max-tasks must be 1..10')
         self.config['_completed_keys']=[]
         outcomes = []
+        queued_scopes = []
         queue_started = time.time()
         remaining_turns = self.config['budget'].get('max_queue_turns', self.config['budget']['max_turns'])
         remaining_tokens = self.config['budget']['soft_tokens']
@@ -136,6 +144,10 @@ class Runner:
             plan = self.planner(self.config,project,mutate=True)
             if plan['state'] != 'EXECUTE':
                 outcomes.append(plan)
+                break
+            if scopes_overlap(queued_scopes, plan['task']['paths']):
+                outcomes.append({'state':'NATIVE_HANDOFF','project':project,'task':plan['task'],
+                    'reason':'Queued task scope overlaps already completed work from the same base; integrate or rebase before another implementation'})
                 break
             self.store.acquire_lock()
             previous = self.store.existing(plan['task_key']) or self.store.by_task(project,plan['task']['id'])
@@ -171,6 +183,7 @@ class Runner:
                 outcomes.append(result)
                 if result['state'] in TERMINAL:
                     self.config.setdefault('_completed_keys',[]).append(plan['task_key'])
+                    queued_scopes.extend(plan['task']['paths'])
                 remaining_turns -= len(result['data']['turns'])
                 observed = Usage(result['data']['usage_threads']).aggregate()['totalTokens']
                 if observed is None:

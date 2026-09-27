@@ -143,7 +143,9 @@ the live-verified ladder.
 
 One worker, up to six turns **per task**, up to 60 turns per foreground queue,
 a 30-minute queue deadline, 500,000 observable-token **soft queue envelope**, two
-repair rounds, one escalation and 10% allowance reserve are starting defaults. With
+repair rounds, one escalation and 10% allowance reserve are starting defaults.
+A queue continues only across disjoint declared file scopes; overlap stops before
+another model turn because separately reviewed worktrees are not an implicit merge. With
 `finish_started_task=true`, the soft token envelope stops additional queue work but
 does not strand an already-started task before its bounded review/repair gate. Deadline,
 turn count and quota remain hard dispatch gates. Repair turns reuse the builder thread

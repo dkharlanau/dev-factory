@@ -202,11 +202,11 @@ def test_ambiguous_pr_creation_reconciles_before_retry(tmp_path,monkeypatch):
 def test_queue_two_independent_tasks(cfg):
     repo=Path(cfg['projects']['demo']['path'])
     from devfactory.fixture import TASK
-    t=copy.deepcopy(TASK);t['id']='second';t['priority']=2
+    t=copy.deepcopy(TASK);t.update(id='second',priority=2,description='Create bounded independent note.',
+                                   acceptance='Create second.txt.',paths=['second.txt'])
     with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
     git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
-    # Turn limits are per task; the queue has its own aggregate turn ceiling.
     cfg['budget']['max_turns']=2
     cfg['budget']['max_queue_turns']=4
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
@@ -214,7 +214,32 @@ def test_queue_two_independent_tasks(cfg):
         results=runner.run('demo',max_tasks=2)
         assert len(results)==2 and all(r['state']=='READY_LOCAL' for r in results)
         assert len({r['data']['worktree'] for r in results})==2
+        assert Path(results[1]['data']['worktree'],'second.txt').read_text()=='fixture change\n'
     finally:runner.close()
+
+
+def test_queue_overlap_hands_off_before_second_model_turn(cfg):
+    repo=Path(cfg['projects']['demo']['path'])
+    from devfactory.fixture import TASK
+    t=copy.deepcopy(TASK);t['id']='overlap';t['priority']=2
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Overlapping task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        results=runner.run('demo',max_tasks=2)
+        assert results[0]['state']=='READY_LOCAL'
+        assert results[1]['state']=='NATIVE_HANDOFF'
+        assert 'overlaps' in results[1]['reason']
+        assert len(FakeRuntime.turns)==2
+    finally:runner.close()
+
+
+def test_scope_overlap_detects_parent_child_paths():
+    from devfactory.runner import scopes_overlap
+    assert scopes_overlap(['src'],['src/feature/file.py'])
+    assert scopes_overlap(['src/feature/file.py'],['src'])
+    assert not scopes_overlap(['src/a'],['src/b'])
 
 
 def test_changed_completed_contract_does_not_duplicate_branch(cfg):
