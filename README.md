@@ -8,7 +8,7 @@ Git, builds, tests and the supervisor run on your Mac.
 **Evaluated control layer, with a new cost-aware routing policy that still requires
 live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
 the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
-Version 3 keeps native autocompaction and live-catalog routing, adds one-snapshot
+Version 3.1 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
 micro-batching, task-local repository navigation, failure-only logs, delta repair
 packets and staged validation, and lets a started batch finish its bounded quality gate.
 See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
@@ -101,11 +101,11 @@ paths. The existing local installation already contains the three inspected path
 Absolute paths, receipts, logs, SQLite and worktrees are ignored by Git.
 
 ```sh
-./factory plan vedokrok
-./factory plan ptichi-site
+./factory prep voice-lab                 # zero model turns; inspect repo hygiene/profile
+./factory compile voice-lab --max-tasks 50  # zero model turns; preview deterministic batches
 ./factory plan voice-lab
-# Explicitly authorizes one local product cycle within configured policy:
-./factory run <project> --max-tasks 1
+# Explicitly authorizes local product work within configured policy:
+./factory run voice-lab --max-tasks 8
 ```
 
 A plan checks realpath, remote identity, HEAD, current remote default SHA, dirty
@@ -225,3 +225,29 @@ repairs, high risk and deep work still promote review strength.
 
 Installed plugins remain deferred in child workers. Unsupported external capabilities are returned as an
 explicit native capability route instead of loading every tool definition into every coding turn.
+
+
+## Repository prep and hygiene (v3.1)
+
+Every product `run` now prepares the exact base SHA before the first model turn. This is deterministic Git
+analysis, not an AI scout. It writes an ignored local profile under `.factory/projects/<project>/repo-profile.json`
+and never edits product files.
+
+Prep measures tracked file/byte counts, root and directory width, large tracked blobs, tracked archive/build/generated
+trees, and `AGENTS.md` size/broad-read rules. Known archive/generated roots become **cold context** automatically:
+they remain in Git but disappear from normal agent navigation unless the current task explicitly targets them.
+This is the safe default form of cleanup because it speeds agent exploration without deleting history or source.
+
+Prep also derives a bounded **co-change graph** from recent Git history. Two backlog tasks from different path roots
+can share a micro-batch only when the history shows a repeated, sufficiently strong co-change relationship. Bulk
+commits are excluded from this signal. This makes batching follow the repository's real change topology rather than
+folder names alone.
+
+`factory prep <project>` exposes the profile for inspection. `factory run` refreshes it automatically, so prep is
+not a required manual phase. Destructive cleanup—deleting tracked files, rewriting history, moving source trees,
+pruning branches, or changing product instructions—remains explicit reviewed product work.
+
+`factory compile <project> --max-tasks N` is a zero-model-turn backlog compiler. It reads the current authority once,
+uses the same repo profile and batching policy, and writes a local campaign artifact showing the batch DAG-like order,
+task membership, paths, checks, risk and model profile. It is optional diagnostics; normal `run` retains the compact
+foreground loop.

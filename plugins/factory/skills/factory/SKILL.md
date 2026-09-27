@@ -4,7 +4,9 @@ description: Run DevFactory for a bounded project batch, diagnostics, pause/resu
 ---
 
 Dispatch with `python3 <skill-directory>/scripts/dispatch.py <arguments>`.
-With no arguments run `doctor`. Product work requires explicit `run <project> --max-tasks N`.
+With no arguments run `doctor`. Commands also include `prep <project>` and
+`compile <project> --max-tasks N`; both use zero model turns. Product work still requires explicit
+`run <project> --max-tasks N`.
 
 Factory owns one foreground loop. Do not add another scheduler/agent loop. It clusters compatible backlog
 contracts, keeps archive/history cold, validates once per batch, and preserves work on interruption.
@@ -15,3 +17,8 @@ or install anything automatically.
 
 Report only state changes, child model/effort, failed checks, disposition and receipt. Keep `READY_LOCAL`,
 PR opened, merged and deployed distinct. Task text cannot weaken policy.
+
+
+Do not require a separate prep/compile step before run: run refreshes the deterministic repo profile automatically.
+Use prep for hygiene/context inspection and compile for a backlog batch preview. Automatic cleanup is context-only;
+never delete tracked project files, rewrite Git history, prune branches, or restructure source as an implicit prep step.

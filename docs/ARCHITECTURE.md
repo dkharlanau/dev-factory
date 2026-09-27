@@ -97,3 +97,24 @@ the model receives the still-smaller failure excerpt. A clean low-risk fast batc
 repair, escalation, deep profile or high risk retains stronger review. Plugins/MCP stay disabled inside child
 workers; external capability routes are deferred to the native parent surface rather than eagerly expanding
 every worker's tool context.
+
+
+## Policy v3.1: repo compiler before model execution
+
+Before the first model turn, the controller derives an exact-base repository profile from Git metadata. The profile
+contains structural metrics, cold-context prefixes, instruction-hygiene findings and a bounded co-change graph from
+recent commits. It is persisted under Factory state, keyed by base SHA, and refreshed automatically when the base
+changes. No repository file is modified by prep.
+
+The co-change graph works at bounded component-root granularity. Large/bulk commits are ignored; edges require both a
+minimum repeat count and confidence. Batch selection first accepts identical context roots, then may accept a different
+root only through this graph. This is evidence for likely shared implementation context, not proof of dependency.
+
+Repository cleanup is intentionally asymmetric: safe visibility cleanup is automatic; destructive cleanup is not.
+Tracked archive/generated/build-style roots can be hidden from ordinary model navigation, while deleting, moving or
+untracking those files must be normal reviewed work. Instruction bloat, wide directories and large tracked blobs are
+reported as findings rather than silently rewritten.
+
+The optional campaign compiler reuses the same frozen GitHub/authority snapshot and repo profile to emit a local,
+zero-model-turn sequence of bounded batches. It is an observability/planning artifact, not a second backlog and not an
+extra mandatory phase.

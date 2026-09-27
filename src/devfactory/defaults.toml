@@ -1,4 +1,4 @@
-policy_version = "3"
+policy_version = "3.1"
 
 [budget]
 deadline_seconds = 1800
@@ -25,6 +25,17 @@ max_tasks = 4
 max_paths = 24
 max_checks = 6
 max_packet_bytes = 12000
+
+[hygiene]
+history_commits = 200
+max_roots_per_commit = 8
+min_cochange_commits = 2
+min_cochange_confidence = 0.35
+large_file_bytes = 1000000
+wide_directory_entries = 500
+root_entries = 40
+instruction_max_lines = 120
+instruction_max_bytes = 12000
 
 [integration]
 push = false

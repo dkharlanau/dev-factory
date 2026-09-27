@@ -38,7 +38,7 @@ def redact(text):
 
 def config_fingerprint(config, project):
     # Includes relevant owner approvals, budgets, checks and routing. Task/model text cannot alter it.
-    return digest({k:config[k] for k in ('budget','profiles','context','batching','integration','policy_version')} |
+    return digest({k:config[k] for k in ('budget','profiles','context','batching','hygiene','integration','policy_version')} |
                   {'project':config['projects'][project]})
 
 
@@ -206,6 +206,7 @@ class Runner:
                   'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
                   'base_branch':plan['base_branch'],'repository':plan['repository'],
                   'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
+                  'repo_profile_hash':plan.get('repo_profile_hash'),
                   'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
                   'escalations':0,'routing_upgrades':0,'usage_threads':{},'started_at':time.time(),
                   'active_execution_seconds':0,'active_execution_complete':False,
@@ -311,10 +312,12 @@ class Runner:
             if not d.get('repo_registry'):
                 instruction_names=set(adapter.get('instructions',[]))
                 guidance=[x['path'] for x in plan['authority'] if x['path'] in instruction_names]
+                repo_profile=self.config.get('_repo_profiles',{}).get(project)
                 d['repo_registry'],d['navigation']=repository_registry(
                     wt,d['base_sha'],plan['task']['paths'],guidance_files=guidance,
                     cold_paths=self.config['context'].get('cold_paths',[]),
-                    max_files=self.config['context'].get('navigation_files',40))
+                    max_files=self.config['context'].get('navigation_files',40),
+                    profile=repo_profile)
             save('CLAIMED')
             with self.runtime_factory(wt) as rt:
                 d['runtime_versions']=rt.inventory().get('versions') if adapter.get('fixture') else None

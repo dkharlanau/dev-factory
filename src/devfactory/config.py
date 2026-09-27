@@ -56,6 +56,17 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "Context navigation/log limits are invalid")
     if not isinstance(ctx.get("cold_paths"),list) or not all(isinstance(x,str) and x for x in ctx["cold_paths"]):
         raise Stop("BLOCKED_POLICY", "cold_paths must be a list of path prefixes")
+    hygiene=config.get("hygiene",{})
+    integer_limits={"history_commits":(1,2000),"max_roots_per_commit":(2,50),"min_cochange_commits":(1,50),
+                    "large_file_bytes":(1000,100000000),"wide_directory_entries":(10,5000),
+                    "root_entries":(5,1000),"instruction_max_lines":(20,1000),"instruction_max_bytes":(1000,100000)}
+    for key,(low,high) in integer_limits.items():
+        value=hygiene.get(key,0)
+        if not isinstance(value,int) or not low <= value <= high:
+            raise Stop("BLOCKED_POLICY", f"Invalid hygiene limit: {key}")
+    confidence=hygiene.get("min_cochange_confidence",0)
+    if not isinstance(confidence,(int,float)) or not 0 < confidence <= 1:
+        raise Stop("BLOCKED_POLICY", "Invalid co-change confidence")
     for name, profile in config["profiles"].items():
         models = profile.get("models")
         if models is not None and (not isinstance(models, list) or not models or

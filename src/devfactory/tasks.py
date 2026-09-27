@@ -6,6 +6,7 @@ from pathlib import Path
 from .policy import Stop, screen_task, classify
 from .repository import GitHub, snapshot, git, tracked_authority, branch_conflicts, command
 from .state import digest
+from .navigation import ensure_profile, roots_related
 
 CONTRACT_KEYS = {'id','description','acceptance','paths','category','risk','complexity','verification',
                  'checks','dependencies','required_capabilities','priority','state','higher_risk_approved'}
@@ -85,6 +86,7 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
     if isinstance(loaded[-1],dict) and loaded[-1].get('state'):
         return loaded[-1]
     repo,github,meta,prs,issues,base,authority=loaded
+    repo_profile=ensure_profile(config,project,repo['path'],base)
     conflicts=branch_conflicts(authority)
     dirty_authority=[d['path'] for d in authority if (Path(repo['path'])/d['path']).exists()
                      and (Path(repo['path'])/d['path']).read_text()!=d['text']]
@@ -156,7 +158,7 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
             if len(selected)>=batch_limit: break
             if profile!=details[0]['profile'] or risk!=details[0]['risk']: break
             candidate_roots=context_roots(task['paths'])
-            if not (roots & candidate_roots): break
+            if not roots_related(roots,candidate_roots,repo_profile): break
             merged_paths=list(dict.fromkeys([p for t in selected+[task] for p in t['paths']]))
             merged_checks=list(dict.fromkeys([c for t in selected+[task] for c in t['checks']]))
             packet=[{k:t[k] for k in ('id','description','acceptance','paths')} for t in selected+[task]]
@@ -190,7 +192,7 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
                 member_contract_hashes=[d['contract_hash'] for d in details],
                 member_task_keys=[d['task_key'] for d in details],
                 profile=details[0]['profile'],risk=details[0]['risk'],task_key=task_key,
-                context_roots=sorted(roots),
+                context_roots=sorted(roots),repo_profile_hash=repo_profile['profile_hash'],
                 reason=('Compatible micro-batch from one frozen authority snapshot' if len(selected)>1
                         else 'Current executable contract; dependencies reconciled'))
     return plan
