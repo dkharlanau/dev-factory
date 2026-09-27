@@ -62,6 +62,13 @@ control that run. There is no promise of continuation after closing Codex, sleep
 or terminating the process. Resume checks current state before another turn.
 Exit 2 indicates a blocked/paused/handoff execution; receipts give the actual cause.
 
+For an idle validation handoff with incomplete or stale diagnostic evidence,
+`./factory resume <run-id> --revalidate` reruns the configured sandbox checks before
+repair. It retains the existing authority, source fingerprint, turn and repair
+budgets; external source edits still require separate reconciliation. Failed-check
+logs and repair excerpts preserve bounded portions of both stdout and stderr so
+warning-heavy stderr cannot displace compiler errors printed to stdout.
+
 ## Codex skill and plugin
 
 The compact repository skill is at `.agents/skills/factory/SKILL.md`. It was found

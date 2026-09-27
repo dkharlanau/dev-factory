@@ -31,7 +31,10 @@ def parser():
         if name=='compile': cmd.add_argument('--max-tasks',type=int,default=50)
     sub.add_parser('status'); sub.add_parser('report')
     for name in ('pause','resume'):
-        sub.add_parser(name).add_argument('run_id')
+        cmd=sub.add_parser(name)
+        cmd.add_argument('run_id')
+        if name=='resume':
+            cmd.add_argument('--revalidate',action='store_true',help='Refresh failed validation before repairing a preserved handoff')
     batch=sub.add_parser('batch'); batch.add_argument('run_ids',nargs='+')
     sub.add_parser('batch-review').add_argument('batch_id')
     bench=sub.add_parser('benchmark'); bench.add_argument('--live',action='store_true')
@@ -49,7 +52,7 @@ def main(argv=None):
             result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
                     'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
                     'batch <run-id> <run-id> [...]','batch-review <batch-id>',
-                    'status','pause <run-id>','resume <run-id>','report','benchmark [--live]'],
+                    'status','pause <run-id>','resume <run-id> [--revalidate]','report','benchmark [--live]'],
                     'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -93,9 +96,11 @@ def main(argv=None):
                 from .fixture import prepare
                 config=prepare(config,project)
             if saved['data'].get('operation')=='batch-review':
+                if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
                 from .batch import load_composition,review_composed_batch
                 result=review_composed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
             elif saved['data'].get('operation')=='batch':
+                if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
                 from .batch import compose_reviewed_slices
                 store=Store(config['state_dir'])
                 try: runs=[store.get(rid) for rid in saved['data']['run_ids']]
@@ -103,7 +108,7 @@ def main(argv=None):
                 result=compose_reviewed_slices(runs,config['state_dir'])
             else:
                 runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
-                try: result=runner.resume(args.run_id)
+                try: result=runner.resume(args.run_id,revalidate=args.revalidate)
                 finally: runner.close()
         elif args.command=='batch':
             if len(args.run_ids)<2:

@@ -6,10 +6,53 @@ from pathlib import Path
 import pytest
 from devfactory.state import Store,digest
 from devfactory.policy import Stop
-from devfactory.runner import Runner
+from devfactory.runner import Runner,failure_excerpt,validation_output
 from devfactory.tasks import resolve,parse_contract
 from devfactory.repository import git,GitHub,repository_id,snapshot
 from fakes import FakeRuntime
+
+
+def test_failure_diagnostics_keep_stdout_error_despite_stderr_warning_flood():
+    result={'exitCode':1,'stdout':'lint passed\nApp.test.tsx: error TS2493: tuple has no element at index 0',
+            'stderr':'first warning\n'+('unrelated CSS warning\n'*2000)+'last warning'}
+    for limit in (1600,12000):
+        text=validation_output(result,limit)
+        assert 'error TS2493' in text
+        assert 'first warning' in text and 'last warning' in text
+        assert len(text.encode('utf-8'))<=limit
+    assert failure_excerpt(result)==validation_output(result,1600)
+
+
+def test_failure_diagnostics_redact_before_truncating_and_bound_unicode_bytes():
+    result={'exitCode':1,'stdout':'fatal source diagnostic\n'+('Ошибка 🎙️\n'*1000)+'\npassword=private-value\nstdout end',
+            'stderr':'Bearer token-hidden-from-receipts\n'+('warning\n'*1000)+'stderr end'}
+    for limit in (0,1,25,1600,12000):
+        text=validation_output(result,limit)
+        assert len(text.encode('utf-8'))<=limit
+        assert 'private-value' not in text and 'token-hidden' not in text
+    text=failure_excerpt(result)
+    assert 'fatal source diagnostic' in text
+    assert 'stdout end' in text and 'stderr end' in text
+    assert '[REDACTED]' in text
+    assert failure_excerpt({'exitCode':0,**{k:v for k,v in result.items() if k!='exitCode'}}) is None
+
+
+def test_failed_check_log_and_repair_packet_preserve_each_stream(cfg):
+    class WarningFloodRuntime(FakeRuntime):
+        def command(self,*args,**kwargs):
+            return {'exitCode':1,'stdout':'App.test.tsx: error TS2493: invalid mock tuple',
+                    'stderr':'first warning\n'+('unrelated warning\n'*2000)+'last warning'}
+    runner=Runner(cfg,runtime_factory=WarningFloodRuntime,emit=lambda _:None)
+    try:
+        run=runner.run('demo')[0]
+        failed=run['data']['tests'][0]
+        log=Path(failed['log'])
+        assert 'error TS2493' in log.read_text()
+        assert log.stat().st_size<=cfg['context']['failure_log_bytes']
+        assert log.stat().st_mode & 0o777==0o600
+        repair=next(t['packet'] for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert 'error TS2493' in repair['validation'][0]['failure_excerpt']
+    finally:runner.close()
 
 
 def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
@@ -169,6 +212,41 @@ def test_interruption_resume(cfg):
         assert resumed['state']=='READY_LOCAL'
         assert resumed['data']['repairs']==0
         assert any(h['resume'] is not None for h in FakeRuntime.history)
+    finally:runner.close()
+
+
+def test_explicit_handoff_revalidation_refreshes_evidence_without_resetting_repair_budget(cfg):
+    FakeRuntime.fail_tests=True
+    FakeRuntime.outcomes=[{'verdict':'PASS','findings':[],'summary':'built'},
+                          {'verdict':'BLOCKED','findings':[],'summary':'diagnostic unavailable'}]
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        assert first['state']=='NATIVE_HANDOFF'
+        assert first['data']['repairs']==1
+        FakeRuntime.fail_tests=False
+        resumed=runner.resume(first['id'],revalidate=True)
+        assert resumed['state']=='READY_LOCAL'
+        assert resumed['data']['operator_revalidations']==1
+        assert resumed['data']['repairs']==first['data']['repairs']
+        assert resumed['data']['failures']==first['data']['failures']
+        assert [t['exit_code'] for t in resumed['data']['tests']]==[1,0]
+        assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','repair','review']
+        with pytest.raises(Stop,match='idle validation handoff'):
+            runner.resume(first['id'],revalidate=True)
+    finally:runner.close()
+
+
+def test_revalidation_still_rejects_foreign_source_changes(cfg):
+    FakeRuntime.fail_tests=True
+    FakeRuntime.outcomes=[{'verdict':'PASS','findings':[],'summary':'built'},
+                          {'verdict':'BLOCKED','findings':[],'summary':'diagnostic unavailable'}]
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        Path(first['data']['worktree'],'clamp.py').write_text('foreign change')
+        with pytest.raises(Stop,match='outside Factory'):
+            runner.resume(first['id'],revalidate=True)
     finally:runner.close()
 
 

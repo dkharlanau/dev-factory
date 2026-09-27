@@ -103,11 +103,41 @@ def validation_summary(tests):
     return list(latest.values())
 
 
+def validation_output(result, limit):
+    """Keep both streams when bounding diagnostics; warnings must not hide stdout errors."""
+    streams=[(name,redact(result.get(name,'')).strip()) for name in ('stdout','stderr')]
+    streams=[(name,text) for name,text in streams if text]
+    combined='\n'.join(text for _,text in streams)
+    limit=max(0,limit)
+    if len(combined.encode('utf-8'))<=limit:
+        return combined
+
+    def clip(text,budget):
+        raw=text.encode('utf-8')
+        if len(raw)<=budget:return text
+        marker=b'\n[... omitted ...]\n'
+        if budget<=len(marker):return raw[:budget].decode('utf-8','ignore')
+        remaining=budget-len(marker)
+        head=(remaining+1)//2;tail=remaining-head
+        return raw[:head].decode('utf-8','ignore')+marker.decode()+(
+            raw[-tail:].decode('utf-8','ignore') if tail else '')
+
+    headers=[f'[{name}]\n' for name,_ in streams]
+    overhead=sum(len(header.encode()) for header in headers)+len(streams)-1
+    if limit<=overhead:return clip(combined,limit)
+    available=limit-overhead
+    budgets=[min(len(text.encode('utf-8')),available//len(streams)) for _,text in streams]
+    spare=available-sum(budgets)
+    for i,(_,text) in enumerate(streams):
+        extra=min(spare,len(text.encode('utf-8'))-budgets[i])
+        budgets[i]+=extra;spare-=extra
+    return '\n'.join(header+clip(text,budget) for header,(_,text),budget in zip(headers,streams,budgets))
+
+
 def failure_excerpt(result, limit=1600):
     if result.get('exitCode') == 0:
         return None
-    text = redact((result.get('stdout','')+'\n'+result.get('stderr','')).strip())
-    return text[-limit:] if text else None
+    return validation_output(result,limit) or None
 
 
 def packet_for_phase(plan, d, phase, adapter, wt):
@@ -246,8 +276,12 @@ class Runner:
                 self.store.release(rid)
         return outcomes
 
-    def resume(self, rid):
+    def resume(self, rid, *, revalidate=False):
         run = self.store.get(rid)
+        if revalidate and (run['state']!='NATIVE_HANDOFF' or run['data'].get('phase')!='repair'
+                           or run['data'].get('in_flight') or not run['data'].get('tests')
+                           or not any(t.get('exit_code')!=0 for t in run['data']['tests'])):
+            raise Stop('BLOCKED_RECONCILIATION','Revalidation requires an idle validation handoff')
         if run['state'] in TERMINAL:
             return {'state':'EXISTING_COMPLETION','run_id':rid}
         self.store.claim(rid,recovering=True)
@@ -270,6 +304,9 @@ class Runner:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree changed outside Factory after checkpoint')
                 if d.get('reviewed_fingerprint') and fingerprint(wt,d['base_sha'])!=d['reviewed_fingerprint']:
                     d['phase']='validate'; d['review']=None
+            if revalidate:
+                d['phase']='validate';d['review']=None;d['acceptance']=None
+                d['operator_revalidations']=d.get('operator_revalidations',0)+1
             # No new token/turn budget is granted on resume. Deadline is an explicit
             # new foreground execution window, while cumulative counters are retained.
             d['deadline']=time.time()+self.config['budget']['deadline_seconds']
@@ -499,10 +536,9 @@ class Runner:
                                 excerpt=failure_excerpt(result)
                                 log=None
                                 if result.get('exitCode')!=0:
-                                    text=redact((result.get('stdout','')+'\n'+result.get('stderr','')).strip())
                                     cap=int(self.config['context'].get('failure_log_bytes',12000))
                                     log=logdir/f'failed-test-{len(d["tests"])+1}.log'
-                                    log.write_text(text[-cap:]); log.chmod(0o600)
+                                    log.write_text(validation_output(result,cap)); log.chmod(0o600)
                                 receipt={'check':name,'stage':stage,'argv':argv,'exit_code':result.get('exitCode'),
                                          'log':str(log) if log else None,
                                          'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds,
