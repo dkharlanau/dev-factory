@@ -201,6 +201,9 @@ class Runner:
             hashes=plan_member_hashes(plan)
             members=[{'task_key':k,'task_id':i,'contract_hash':h} for k,i,h in zip(keys,ids,hashes)]
             data={'project':project,'task_id':plan['task']['id'],'task_ids':ids,'contract_hash':plan['contract_hash'],
+                  'task_contract':{k:plan['task'][k] for k in ('id','description','acceptance','paths')},
+                  'task_contracts':[{k:t[k] for k in ('id','description','acceptance','paths')}
+                                    for t in (plan.get('tasks') or [plan['task']])],
                   'member_task_keys':keys,'member_contract_hashes':hashes,'members':members,
                   'task_source':plan['task']['source'],'task_category':plan['task'].get('category','unknown'),
                   'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],

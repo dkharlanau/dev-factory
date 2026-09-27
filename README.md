@@ -251,3 +251,24 @@ pruning branches, or changing product instructions—remains explicit reviewed p
 uses the same repo profile and batching policy, and writes a local campaign artifact showing the batch DAG-like order,
 task membership, paths, checks, risk and model profile. It is optional diagnostics; normal `run` retains the compact
 foreground loop.
+
+
+## Optional post-review composition
+
+Pre-build micro-batching is the normal fast path. A second, optional primitive preserves the useful part of PR #3:
+separately reviewed `READY_LOCAL` slices that share an exact base and have disjoint scopes can be composed later
+without another implementation turn.
+
+```sh
+./factory batch <run-id> <run-id> [...]
+./factory batch-review <batch-id>
+```
+
+`batch` is deterministic and uses zero model turns. It rechecks each reviewed fingerprint, applies the exact
+tracked/untracked deltas into a fresh Factory worktree, verifies the resulting file set, and writes an idempotent
+composition receipt. `batch-review` then runs the configured broad final checks once and spends exactly one fresh
+integration-review turn across all child acceptance criteria. It never auto-repairs a failed composition; a defect
+blocks the batch instead of mutating already-reviewed slices.
+
+This layer is intentionally optional: do not split work merely to use it. The ordinary v3.1 repo-aware micro-batch
+path is cheaper when tasks can be safely implemented together from the start.
