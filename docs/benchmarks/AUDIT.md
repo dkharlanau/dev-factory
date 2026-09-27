@@ -51,12 +51,14 @@ not affected. A regression test requires unknown role allocation across that gap
 
 ## Policy v3.2 compaction follow-up
 
-Factory now requests SDK compaction only before repair when the builder thread reaches
-its configured completed-turn threshold, cumulative usage is observable, and the
+Factory can request SDK compaction only before repair when opted in and the builder
+thread reaches its configured completed-turn threshold, cumulative usage is observable, and the
 configured token reserve plus three turn slots remain for compaction, repair and fresh
 review. A mode-0600 checkpoint binds the task contract, base, current source
 fingerprint, changed paths, checks and findings before dispatch. Compacted repairs
 receive the bounded contract again. Offline tests cover the trigger gates, persisted
 reconciliation boundary, missing-usage attribution and ambiguous-dispatch handoff.
-Native autocompaction remains enabled. The prior benchmark contains no evidence of
-token savings; compaction usage and context occupancy remain unknown.
+Native autocompaction remains enabled by default; early Factory compaction is disabled by
+default because the prior benchmark contains no evidence of token savings, while a
+one-turn repair trigger would compact even a short context. Compaction usage and
+context occupancy remain unknown.
