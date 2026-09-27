@@ -68,6 +68,9 @@ repair. It retains the existing authority, source fingerprint, turn and repair
 budgets; external source edits still require separate reconciliation. Failed-check
 logs and repair excerpts preserve bounded portions of both stdout and stderr so
 warning-heavy stderr cannot displace compiler errors printed to stdout.
+An explicit sandbox denial of a loopback test listener stops as infrastructure
+blocked without spending a source-repair turn. It does not enable networking or
+retry the command outside the sandbox.
 
 ## Codex skill and plugin
 

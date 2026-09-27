@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from devfactory.state import Store,digest
 from devfactory.policy import Stop
-from devfactory.runner import Runner,failure_excerpt,validation_output
+from devfactory.runner import Runner,failure_excerpt,validation_output,validation_infrastructure_failure
 from devfactory.tasks import resolve,parse_contract
 from devfactory.repository import git,GitHub,repository_id,snapshot
 from fakes import FakeRuntime
@@ -52,6 +52,61 @@ def test_failed_check_log_and_repair_packet_preserve_each_stream(cfg):
         assert log.stat().st_mode & 0o777==0o600
         repair=next(t['packet'] for t in FakeRuntime.turns if t['packet']['role']=='repair')
         assert 'error TS2493' in repair['validation'][0]['failure_excerpt']
+    finally:runner.close()
+
+
+@pytest.mark.parametrize('address',['127.0.0.1','::1'])
+def test_denied_local_test_listener_stops_without_source_repair(cfg,address):
+    class DeniedListenerRuntime(FakeRuntime):
+        def command(self,*args,**kwargs):
+            return {'exitCode':1,'stdout':'build passed',
+                    'stderr':f'Error: listen EPERM: operation not permitted {address}'}
+    runner=Runner(cfg,runtime_factory=DeniedListenerRuntime,emit=lambda _:None)
+    try:
+        run=runner.run('demo')[0]
+        assert run['state']=='BLOCKED_INFRASTRUCTURE'
+        assert 'loopback test listener' in run['data']['reason']
+        assert run['data']['repairs']==0
+        assert len(FakeRuntime.turns)==1
+        assert run['data']['tests'][0]['infrastructure_reason']
+    finally:runner.close()
+
+
+def test_port_collision_and_nonnetwork_permission_errors_remain_source_diagnostics():
+    for output in ['Error: listen EADDRINUSE: address already in use 127.0.0.1',
+                   'Error: EPERM: operation not permitted, open example.txt']:
+        assert validation_infrastructure_failure({'exitCode':1,'stderr':output}) is None
+    assert validation_infrastructure_failure({'exitCode':0,'stderr':'Error: listen EPERM: operation not permitted 127.0.0.1'}) is None
+
+
+def test_checkpoint_git_failure_still_persists_blocked_state(cfg,monkeypatch):
+    from devfactory import runner as module
+    original=module.fingerprint
+    broken=False
+    cfg['projects']['demo']['setup_checks']=['setup']
+    cfg['projects']['demo']['checks']['setup']=['fixture-setup']
+    class SnapshotFailureRuntime(FakeRuntime):
+        def command(self,*args,**kwargs):
+            nonlocal broken
+            broken=True
+            return {'exitCode':1,'stdout':'fixture setup failed','stderr':''}
+    def fingerprint(*args):
+        if broken:raise Stop('BLOCKED_INFRASTRUCTURE','TimeoutExpired: git')
+        return original(*args)
+    monkeypatch.setattr(module,'fingerprint',fingerprint)
+    runner=Runner(cfg,runtime_factory=SnapshotFailureRuntime,emit=lambda _:None)
+    try:
+        run=runner.run('demo')[0]
+        assert run['state']=='BLOCKED_INFRASTRUCTURE'
+        assert runner.store.get(run['id'])['state']=='BLOCKED_INFRASTRUCTURE'
+        assert 'checkpoint snapshot unavailable' in run['data']['reason']
+        assert run['data']['checkpoint_snapshot_error']['reason']=='TimeoutExpired: git'
+        checkpoint=json.loads((Path(cfg['state_dir'])/'runs'/run['id']/'checkpoint.json').read_text())
+        assert checkpoint['checkpoint_snapshot_error']
+        assert not FakeRuntime.turns
+        broken=False
+        with pytest.raises(Stop,match='native source reconciliation'):
+            runner.resume(run['id'])
     finally:runner.close()
 
 

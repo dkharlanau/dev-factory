@@ -140,6 +140,14 @@ def failure_excerpt(result, limit=1600):
     return validation_output(result,limit) or None
 
 
+def validation_infrastructure_failure(result):
+    if result.get('exitCode')==0:return None
+    output=result.get('stdout','')+'\n'+result.get('stderr','')
+    if re.search(r'listen\s+(?:EPERM|EACCES):[^\n]*(?:127\.0\.0\.1|::1|localhost)',output):
+        return 'Native sandbox denied a loopback test listener; preserve work and reconcile the required local-server capability'
+    return None
+
+
 def packet_for_phase(plan, d, phase, adapter, wt):
     members=plan.get('tasks') or [plan['task']]
     packets=[{k:t[k] for k in ('id','description','acceptance','paths')} for t in members]
@@ -300,6 +308,8 @@ class Runner:
                 now=snapshot(wt,self.config['projects'][project].get('repository'))
                 if now['branch']!=d['branch'] or now['operations']:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree branch/operation changed')
+                if d.get('checkpoint_snapshot_error') and not d.get('checkpoint_fingerprint'):
+                    raise Stop('BLOCKED_RECONCILIATION','Checkpoint snapshot unavailable; native source reconciliation required')
                 if d.get('checkpoint_fingerprint') and fingerprint(wt,d['base_sha'])!=d['checkpoint_fingerprint']:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree changed outside Factory after checkpoint')
                 if d.get('reviewed_fingerprint') and fingerprint(wt,d['base_sha'])!=d['reviewed_fingerprint']:
@@ -349,14 +359,25 @@ class Runner:
             d['reason']=reason
             d['active_execution_complete']=state in TERMINAL
             if wt.exists():
-                d['checkpoint_fingerprint']=fingerprint(wt,d['base_sha'])
-                d['head_sha']=git(wt,'rev-parse','HEAD')
-                d['changed_files']=changed(wt,d['base_sha'])
+                try:
+                    current={'checkpoint_fingerprint':fingerprint(wt,d['base_sha']),
+                             'head_sha':git(wt,'rev-parse','HEAD'),
+                             'changed_files':changed(wt,d['base_sha'])}
+                except Stop as error:
+                    # Persist the failure even when the failing Git operation also
+                    # prevents a fresh snapshot. Never manufacture a new fingerprint.
+                    d['checkpoint_snapshot_error']={'state':error.state,'reason':error.reason}
+                    d['reason']+='; checkpoint snapshot unavailable: '+error.reason
+                    if state in TERMINAL:
+                        state='BLOCKED_RECONCILIATION';d['acceptance']=None
+                    d['active_execution_complete']=False
+                else:
+                    d.update(current);d.pop('checkpoint_snapshot_error',None)
             d['next_step']=d['phase']
             # Operational facts only. No prompts, conversations or hidden reasoning.
             atomic_json(logdir/'checkpoint.json',{k:d.get(k) for k in (
                 'task_id','task_ids','contract_hash','task_source','base_sha','head_sha','changed_files',
-                'tests','reason','next_step','in_flight','worktree','builder_thread')})
+                'tests','reason','next_step','in_flight','worktree','builder_thread','checkpoint_snapshot_error')})
             save(state)
         try:
             create_worktree(plan['repository']['path'],wt,d['branch'],d['base_sha'])
@@ -542,7 +563,8 @@ class Runner:
                                 receipt={'check':name,'stage':stage,'argv':argv,'exit_code':result.get('exitCode'),
                                          'log':str(log) if log else None,
                                          'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds,
-                                         'failure_excerpt':excerpt}
+                                         'failure_excerpt':excerpt,
+                                         'infrastructure_reason':validation_infrastructure_failure(result)}
                                 d['tests'].append(receipt); stage_receipts.append(receipt); save('VALIDATE')
                                 if fingerprint(wt,d['base_sha']) != before_test:
                                     raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')
@@ -552,6 +574,8 @@ class Runner:
                                 break
                         if failed:
                             d['findings']=[{'file':'','line':0,'summary':'Configured validation failed: '+', '.join(failed)}]
+                            infrastructure=next((t['infrastructure_reason'] for t in failed_receipts if t.get('infrastructure_reason')),None)
+                            if infrastructure:raise Stop('BLOCKED_INFRASTRUCTURE',infrastructure)
                             if any(t['exit_code'] in (126,127) for t in failed_receipts):
                                 raise Stop('BLOCKED_INFRASTRUCTURE','Validation executable unavailable')
                             self._repair(d)
