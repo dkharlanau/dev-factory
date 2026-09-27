@@ -169,6 +169,7 @@ def test_handoff_does_not_inventory_cold_history(cfg,monkeypatch,blocker):
 
 
 def test_repair_uses_delta_packet_and_stronger_review(cfg):
+    assert cfg['context']['factory_auto_compaction'] is False
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},
         {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
@@ -179,6 +180,7 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
     try:
         r=runner.run('demo')[0]
         assert r['state']=='READY_LOCAL'
+        assert FakeRuntime.compactions==[]
         build=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')['packet']
         repair=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')['packet']
         assert set(build['task'])=={'id','description','acceptance','paths'}
@@ -197,14 +199,16 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
     finally: runner.close()
 
 
-def test_long_repair_thread_compacts_from_durable_checkpoint_and_reanchors_contract(cfg):
+def test_opted_in_repair_compacts_from_durable_checkpoint_and_reanchors_contract(cfg):
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},
         {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
         {'verdict':'PASS','findings':[],'summary':'repaired'},
         {'verdict':'PASS','findings':[],'summary':'reviewed'},
     ]
-    cfg['context']['compact_after_builder_turns']=1
+    assert cfg['context']['factory_auto_compaction'] is False
+    cfg['context']['factory_auto_compaction']=True
+    assert cfg['context']['compact_after_builder_turns']==1
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         result=runner.run('demo')[0]; data=result['data']
@@ -236,6 +240,7 @@ def test_auto_compaction_reserves_token_and_turn_budget(cfg):
     from devfactory.runner import compaction_due
     from devfactory.policy import Usage
     cfg['context']['compact_after_builder_turns']=1
+    cfg['context']['factory_auto_compaction']=True
     data={'builder_thread':'b','turns':[{'thread_id':'b','role':'build'}],
           'remaining_turns':6,'remaining_tokens':500000}
     usage=Usage({'b':{'totalTokens':1000}})
@@ -254,6 +259,7 @@ def test_ambiguous_compaction_preserves_repair_checkpoint_and_hands_off(cfg):
         {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
     ]
     cfg['context']['compact_after_builder_turns']=1
+    cfg['context']['factory_auto_compaction']=True
     class LostCompactionResult(FakeRuntime):
         def compact(self,tid,*,deadline,checkpoint,on_event=lambda *_:None,on_start=lambda *_:None):
             on_start({'previous_turn_ids':[]})

@@ -15,6 +15,7 @@ REPAIR={'verdict':'REPAIR','findings':[{'file':'clamp.py','line':2,'summary':'Ha
 
 
 def test_review_rejection_repairs_then_fresh_review(cfg):
+    cfg['context']['factory_auto_compaction']=False
     FakeRuntime.outcomes=[PASS,REPAIR,PASS,PASS]
     r=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:

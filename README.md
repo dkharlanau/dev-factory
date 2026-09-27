@@ -52,10 +52,15 @@ fixture. Both commands consume your Codex allowance on their first run.
 ```sh
 ./factory status
 ./factory report
-./factory report <run-id> --summary
+./factory report <run-id>
+./factory report <run-id> --full
 ./factory pause <run-id>
 ./factory resume <run-id>
 ```
+
+`report` prints compact receipts by default, whether it lists all runs or selects
+one run ID. Use `--full` only when debugging the complete stored receipt and turn
+histories; `--summary` remains an alias for the compact format.
 
 Run in the foreground. Ctrl+C requests a supported native interrupt and preserves
 an operational checkpoint/worktree. Do not create another Goal or scheduler to
@@ -188,14 +193,19 @@ bytes avoided, cached-input ratio when observable, and soft-budget overshoot. By
 counts are not tokens and cached input is not zero-cost. Missing intervening usage
 keeps per-role attribution unknown.
 
-Factory may compact a continuing builder thread before a repair after two completed
-builder turns. It first saves a mode-0600 checkpoint with the task contract, base and
-source fingerprints, changed paths, check outcomes, findings and remaining budgets.
+Native SDK autocompaction stays enabled by default. Factory-controlled early compaction
+is opt-in (`context.factory_auto_compaction = true`): a repair after one completed
+builder turn can otherwise trigger an extra model turn even for a short context, and
+no active-context occupancy measurement is available to justify that default cost.
+The previous two-turn threshold could not trigger within the six-turn task budget
+while reserving compaction, repair and fresh review. When enabled, Factory first
+saves a mode-0600 checkpoint with the task contract, base and source fingerprints,
+changed paths, check outcomes, findings and remaining budgets.
 It skips explicit compaction when token usage is unknown or configured token/turn
-reserves for repair and fresh review are not available. Native SDK autocompaction stays
-enabled. Each repair re-receives the bounded task contract after compaction, and an
-ambiguous result stops for reconciliation. Compaction usage is not separately exposed,
-so this is a context-continuity safeguard, not a demonstrated token saving.
+reserves for repair and fresh review are not available. Each repair re-receives the
+bounded task contract after compaction, and an ambiguous result stops for
+reconciliation. Compaction usage is not separately exposed, so opt-in early
+compaction is a context-continuity safeguard, not a demonstrated token saving.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction
