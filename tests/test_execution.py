@@ -359,3 +359,97 @@ def test_dependency_must_be_merged(monkeypatch):
     assert gh.dependency(1) is False
     gh.json=lambda *a:{'state':'MERGED','mergedAt':'2026-09-26','headRefOid':'a'}
     assert gh.dependency(1) is True
+
+
+def approved_authority(cfg):
+    from devfactory.repository import tracked_authority
+    repo=Path(cfg['projects']['demo']['path'])
+    (repo/'AGENTS.md').write_text('Work only on `main`. Preserve tests.\n')
+    git(repo,'add','AGENTS.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Branch authority')
+    adapter=cfg['projects']['demo']
+    adapter['base_sha']=git(repo,'rev-parse','HEAD')
+    (repo/'AGENTS.md').write_text('Local instructions to preserve.\n')
+    initial=resolve(cfg,'demo')
+    assert initial['state']=='NATIVE_HANDOFF'
+    task=parse_contract((repo/'BACKLOG.md').read_text())[0]
+    task['source']={'kind':'file','path':'BACKLOG.md','base_sha':adapter['base_sha']}
+    adapter['authority_approval']={'base_sha':adapter['base_sha'],
+        'authority_hash':digest(initial['authority']),'task_ids':[task['id']],
+        'contract_hashes':[digest(task)],'isolated_branch':True,'remote_authority':True}
+    return repo
+
+
+def test_exact_owner_authority_exception_is_applied_and_recorded(cfg):
+    repo=approved_authority(cfg)
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        outcome=runner.run('demo')[0]
+        assert outcome['state']=='READY_LOCAL',outcome
+        assert outcome['data']['authority_approval']=={'isolated_branch':True,'remote_authority':True}
+        assert all('Explicit owner exception' in h['instructions'] for h in FakeRuntime.history)
+        assert (repo/'AGENTS.md').read_text()=='Local instructions to preserve.\n'
+    finally:runner.close()
+
+
+@pytest.mark.parametrize('field,value',[
+    ('base_sha','stale'),('authority_hash','stale'),('task_ids',['other']),
+    ('contract_hashes',['stale']),('isolated_branch','true'),('remote_authority',False),
+])
+def test_stale_or_incomplete_owner_exception_does_not_bypass_authority(cfg,field,value):
+    approved_authority(cfg)
+    cfg['projects']['demo']['authority_approval'][field]=value
+    assert resolve(cfg,'demo')['state']=='NATIVE_HANDOFF'
+    assert FakeRuntime.turns==[]
+
+
+def test_task_cannot_supply_authority_exception():
+    from devfactory.fixture import TASK
+    task=dict(TASK,authority_approval={'isolated_branch':True})
+    with pytest.raises(Stop,match='unsupported fields'):
+        parse_contract('```factory-task\n'+json.dumps(task)+'\n```')
+
+
+def test_setup_failure_spends_no_turn_and_can_resume_same_worktree(cfg):
+    import sys
+    adapter=cfg['projects']['demo']
+    adapter['setup_checks']=['prepare']
+    adapter['checks']['prepare']=[sys.executable,'-c','pass']
+    class SetupRuntime(FakeRuntime):
+        blocked=True
+        setup_calls=0
+        def command(self,cwd,argv,**kw):
+            if argv==adapter['checks']['prepare']:
+                self.__class__.setup_calls+=1
+                if self.blocked:return {'exitCode':1,'stdout':'missing cached dependency','stderr':''}
+            return super().command(cwd,argv,**kw)
+    runner=Runner(cfg,runtime_factory=SetupRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        assert first['state']=='BLOCKED_SETUP' and FakeRuntime.turns==[]
+        assert first['data']['setup'][0]['failure_excerpt']=='missing cached dependency'
+        SetupRuntime.blocked=False
+        second=runner.resume(first['id'])
+        assert second['state']=='READY_LOCAL',second
+        assert first['data']['worktree']==second['data']['worktree']
+        assert second['data']['setup_completed']==['prepare']
+        assert SetupRuntime.setup_calls==2
+    finally:runner.close()
+
+
+def test_setup_cannot_silently_modify_source(cfg):
+    import sys
+    adapter=cfg['projects']['demo']
+    adapter['setup_checks']=['prepare']
+    adapter['checks']['prepare']=[sys.executable,'-c','from pathlib import Path; Path("clamp.py").write_text("changed")']
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        result=runner.run('demo')[0]
+        assert result['state']=='BLOCKED_SETUP' and FakeRuntime.turns==[]
+        assert 'changed source' in result['data']['reason']
+    finally:runner.close()
+
+
+def test_setup_requires_owner_command_allowlist(cfg):
+    cfg['projects']['demo']['setup_checks']=['unconfigured']
+    assert resolve(cfg,'demo')['state']=='NATIVE_HANDOFF'

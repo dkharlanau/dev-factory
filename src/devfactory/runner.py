@@ -42,6 +42,16 @@ def config_fingerprint(config, project):
                   {'project':config['projects'][project]})
 
 
+def worker_rules(plan):
+    rules=WORKER_RULES
+    approval=plan.get('authority_approval') or {}
+    if approval.get('isolated_branch'):
+        rules+='\nExplicit owner exception for this source/task snapshot: work in the assigned isolated branch despite a main-only repository rule.\n'
+    if approval.get('remote_authority'):
+        rules+='\nExplicit owner decision: the assigned remote-base snapshot is the instruction authority; preserve unrelated local checkout edits.\n'
+    return rules
+
+
 def validate_scope(worktree, base, allowed):
     names = changed(worktree,base)
     for n in names:
@@ -210,6 +220,7 @@ class Runner:
                   'base_branch':plan['base_branch'],'repository':plan['repository'],
                   'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
                   'repo_profile_hash':plan.get('repo_profile_hash'),
+                  'authority_approval':plan.get('authority_approval',{}),
                   'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
                   'escalations':0,'routing_upgrades':0,'usage_threads':{},'started_at':time.time(),
                   'active_execution_seconds':0,'active_execution_complete':False,
@@ -325,10 +336,27 @@ class Runner:
             with self.runtime_factory(wt) as rt:
                 d['runtime_versions']=rt.inventory().get('versions') if adapter.get('fixture') else None
                 attached_builder=None
+                for name in dict.fromkeys(adapter.get('setup_checks',[])):
+                    if name in d.get('setup_completed',[]): continue
+                    if paused(): raise Stop('PAUSED','Owner requested pause')
+                    if time.time()>=d['deadline']: raise Stop('PAUSED_DEADLINE','Foreground deadline reached')
+                    before=fingerprint(wt,d['base_sha'])
+                    argv=adapter['checks'][name]
+                    result=rt.command(wt,argv,timeout=min(600,max(1,d['deadline']-time.time())),should_pause=paused)
+                    entry={'check':name,'stage':'setup','argv':argv,'exit_code':result.get('exitCode'),
+                           'failure_excerpt':failure_excerpt(result)}
+                    d.setdefault('setup',[]).append(entry)
+                    save('SETUP')
+                    if fingerprint(wt,d['base_sha'])!=before:
+                        raise Stop('BLOCKED_SETUP','Setup changed source files; work preserved')
+                    if result.get('exitCode')!=0:
+                        raise Stop('BLOCKED_SETUP','Owner setup check failed: '+name+'; no implementation turn dispatched')
+                    d.setdefault('setup_completed',[]).append(name)
+                    save('SETUP')
                 if recovering and d.get('in_flight'):
                     flight=d['in_flight']
                     sel=choose_model(d['profile'],self.config,rt.catalog,rt.native,baseline=d['baseline'])
-                    resumed=rt.start(wt,sel,WORKER_RULES,resume=flight['thread_id'])
+                    resumed=rt.start(wt,sel,worker_rules(plan),resume=flight['thread_id'])
                     if flight.get('role')=='build': attached_builder=resumed
                     state=rt.rpc('thread/read',{'threadId':flight['thread_id'],'includeTurns':True})['thread']
                     matching=[t for t in state.get('turns',[]) if t['id']==flight.get('turn_id')]
@@ -365,7 +393,7 @@ class Runner:
                             route_profile='review' if review else d['profile']
                         selection=choose_model(route_profile,self.config,rt.catalog,rt.native,
                                                baseline=d['baseline'],high_risk=d['risk']=='high')
-                        instructions=WORKER_RULES+(
+                        instructions=worker_rules(plan)+(
                             '\nRole: review the diff/source against acceptance using supplied validation evidence. '
                             'Do not edit. Re-run a passing check only for a specific unresolved concern; otherwise '
                             'do not duplicate controller validation.\n'

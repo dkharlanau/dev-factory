@@ -94,6 +94,18 @@ def dirty_authority_paths(repo, base, authority):
     return dirty
 
 
+def authority_approval(adapter, base, authority, tasks):
+    """Only a local owner decision bound to the current source/task snapshot applies."""
+    approval=adapter.get('authority_approval') or {}
+    public=[{k:v for k,v in d.items() if k!='text'} for d in authority]
+    if (approval.get('base_sha')!=base or approval.get('authority_hash')!=digest(public)
+            or not tasks or not approval.get('task_ids')
+            or any(t['id'] not in approval['task_ids'] for t in tasks)
+            or any(digest(t) not in approval.get('contract_hashes',[]) for t in tasks)):
+        return {}
+    return {k:approval.get(k) is True for k in ('isolated_branch','remote_authority')}
+
+
 def resolve(config, project, *, mutate=False, batch_limit=1):
     if project not in config['projects']:
         raise Stop('NOT_FOUND','Unknown project; configured: '+', '.join(config['projects']))
@@ -116,12 +128,13 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
             tasks.append(t)
     executable=[t for t in tasks if t.get('state') in ('EXECUTE','IN_PROGRESS')]
     executable.sort(key=lambda t:(t.get('state')!='IN_PROGRESS',t.get('priority',100),str(t['id'])))
+    approval=authority_approval(adapter,base,authority,executable)
     plan={'project':project,'state':'IDLE','repository':repo,'base_sha':base,
           'base_branch':meta['defaultBranchRef']['name'],'issues_enabled':meta['hasIssuesEnabled'],
           'open_prs':prs,'authority':[{k:v for k,v in d.items() if k!='text'} for d in authority],
-          'conflicts':conflicts,'dirty_authority':dirty_authority,'task':None,'tasks':[],
+          'conflicts':conflicts,'dirty_authority':dirty_authority,'authority_approval':approval,'task':None,'tasks':[],
           'reason':'No executable task contract in current repository authority','planning_snapshot':'frozen-per-run'}
-    if conflicts or dirty_authority:
+    if (conflicts and not approval.get('isolated_branch')) or (dirty_authority and not approval.get('remote_authority')):
         plan.update(state='NATIVE_HANDOFF',reason='Current repository authority conflicts with the execution plan'); return plan
     if not executable:
         if issues or any('EXECUTE' in d['text'] for d in authority) or prs:
@@ -134,6 +147,9 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
     batch_limit=max(1,min(int(batch_limit),int(batching.get('max_tasks',1))))
     selected=[]; details=[]; roots=None
     named=adapter.get('checks',{}); final=adapter.get('final_checks',[])
+    setup=adapter.get('setup_checks',[])
+    if not isinstance(setup,list) or not all(isinstance(n,str) and n for n in setup):
+        raise Stop('BLOCKED_POLICY','Owner setup checks must be a list of check names')
     if not final:
         plan.update(state='NATIVE_HANDOFF',reason='Owner final check allowlist is not configured'); return plan
     for task in executable:
@@ -158,10 +174,10 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
             reason='Required capability needs native Codex: '+', '.join(unsupported)
             if routed: reason+='; deferred route: '+json.dumps(routed,separators=(',',':'))
             plan.update(state='NATIVE_HANDOFF',reason=reason,task=task,capability_routes=routed); return plan
-        if any(c not in named for c in task['checks']+final):
+        if any(c not in named for c in task['checks']+final+setup):
             if selected: break
             plan.update(state='NATIVE_HANDOFF',reason='Owner check allowlist/final gate is not configured',task=task); return plan
-        for name in task['checks']+final:
+        for name in task['checks']+final+setup:
             argv=named[name]
             if not isinstance(argv,list) or not argv or not all(isinstance(a,str) for a in argv):
                 raise Stop('BLOCKED_POLICY','Configured checks must be nonempty argv lists')
