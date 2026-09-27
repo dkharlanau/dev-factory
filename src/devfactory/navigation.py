@@ -58,7 +58,8 @@ def _cochange(path, base_sha, *, history_commits=200, max_roots_per_commit=8,
               min_commits=2, min_confidence=.35):
     raw=command(['git','-C',str(path),'log','--format=__COMMIT__%H','--name-only','--no-renames',
                  '-n',str(int(history_commits)),base_sha],check=False)
-    if raw.returncode: return {}
+    if raw.returncode:
+        raise Stop('BLOCKED_INFRASTRUCTURE','Git co-change history is unavailable')
     commits=[]; current=[]
     for line in raw.stdout.splitlines():
         if line.startswith('__COMMIT__'):
@@ -142,18 +143,27 @@ def analyze_repository(path, base_sha, *, configured_cold_paths=(), rules=None):
             findings.append({'severity':'warning','code':'AGENT_INSTRUCTION_BLOAT','path':name,
                              'detail':f'{lines} lines, {len(text.encode())} bytes, {len(flags)} broad-read rules',
                              'recommendation':'Keep durable rules compact and point to specialized docs only when the task requires them.'})
-    cochange=_cochange(path,base_sha,
-        history_commits=rules.get('history_commits',200),
-        max_roots_per_commit=rules.get('max_roots_per_commit',8),
-        min_commits=rules.get('min_cochange_commits',2),
-        min_confidence=rules.get('min_cochange_confidence',.35))
+    cochange_status={'state':'available'}
+    try:
+        cochange=_cochange(path,base_sha,
+            history_commits=rules.get('history_commits',200),
+            max_roots_per_commit=rules.get('max_roots_per_commit',8),
+            min_commits=rules.get('min_cochange_commits',2),
+            min_confidence=rules.get('min_cochange_confidence',.35))
+    except Stop as error:
+        if error.state!='BLOCKED_INFRASTRUCTURE': raise
+        cochange={}
+        cochange_status={'state':'unavailable','reason':error.reason}
+        findings.append({'severity':'warning','code':'COCHANGE_UNAVAILABLE','path':None,
+                         'detail':error.reason,
+                         'recommendation':'Use shared task roots; cross-root batching requires observed history.'})
     profile={'version':1,'base_sha':base_sha,'metrics':{
                 'tracked_files':file_count,'tracked_bytes':total_bytes,'root_files':roots,
                 'cold_files':len(cold_files),'cold_bytes':sum(x['size'] or 0 for x in cold_files),
                 'largest_roots':dict(root_counts.most_common(12))},
              'context':{'configured_cold_paths':configured,'auto_cold_paths':sorted(auto),
                         'effective_cold_paths':cold},
-             'instructions':instruction_stats,'cochange':cochange,'findings':findings,
+             'instructions':instruction_stats,'cochange':cochange,'cochange_status':cochange_status,'findings':findings,
              'cleanup':{'mode':'context_only','product_files_changed':False,
                         'reason':'Automatic prep optimizes agent visibility; destructive repository cleanup stays explicit and reviewed.'}}
     profile['profile_hash']=digest(profile)

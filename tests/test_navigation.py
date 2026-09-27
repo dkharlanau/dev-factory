@@ -1,4 +1,7 @@
 from pathlib import Path
+import subprocess
+import pytest
+from devfactory.policy import Stop
 from devfactory.navigation import repository_registry, analyze_repository, roots_related, prepare_project
 from devfactory.repository import git
 
@@ -47,3 +50,21 @@ def test_prepare_project_persists_zero_model_profile(cfg):
     assert result['cleanup']['product_files_changed'] is False
     assert Path(result['profile_path']).exists()
     assert result['metrics']['tracked_files'] >= 4
+
+
+@pytest.mark.parametrize('failure',['timeout','exit'])
+def test_optional_history_failure_is_unknown_and_blocks_cross_root_grouping(cfg,monkeypatch,failure):
+    import devfactory.navigation as module
+    original=module.command
+    def failed_history(argv,*args,**kwargs):
+        if 'log' in argv:
+            if failure=='timeout': raise Stop('BLOCKED_INFRASTRUCTURE','TimeoutExpired: git')
+            return subprocess.CompletedProcess(argv,1,'','')
+        return original(argv,*args,**kwargs)
+    monkeypatch.setattr(module,'command',failed_history)
+    project=cfg['projects']['demo']
+    profile=analyze_repository(project['path'],project['base_sha'])
+    assert profile['cochange_status']['state']=='unavailable'
+    assert any(f['code']=='COCHANGE_UNAVAILABLE' for f in profile['findings'])
+    assert not roots_related({'src'},{'tests'},profile)
+    assert roots_related({'src'},{'src'},profile)

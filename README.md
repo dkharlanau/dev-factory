@@ -281,3 +281,7 @@ before/during the turn. A lost result is recovered from the same native turn whe
 completed verdict is available. Missing acknowledgements, active/interrupted turns or
 unavailable verdicts block without a second review; inspect the preserved checkpoint.
 Recovered usage is explicitly incomplete when final telemetry was not observed.
+
+Planning checks task authority before computing a repository profile. Unavailable or
+timed-out co-change history is recorded as unknown; batching then requires shared task
+roots and cannot infer cross-root relationships from missing history.

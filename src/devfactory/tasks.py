@@ -104,7 +104,6 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
     if isinstance(loaded[-1],dict) and loaded[-1].get('state'):
         return loaded[-1]
     repo,github,meta,prs,issues,base,authority=loaded
-    repo_profile=ensure_profile(config,project,repo['path'],base)
     conflicts=branch_conflicts(authority)
     dirty_authority=dirty_authority_paths(repo,base,authority)
     tasks=[]
@@ -128,6 +127,7 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
         if issues or any('EXECUTE' in d['text'] for d in authority) or prs:
             plan.update(state='NATIVE_HANDOFF',reason='Current work exists but has no unambiguous machine-readable acceptance/scope; native selection required')
         return plan
+    repo_profile=ensure_profile(config,project,repo['path'],base)
     batching=config.get('batching',{})
     if not batching.get('enabled',True) or config['integration'].get('push') or config['integration'].get('pull_request'):
         batch_limit=1

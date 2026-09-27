@@ -6,9 +6,11 @@ dispatch acknowledgement, active/interrupted turns, pause/deadline gates and exp
 dead-owner resume. These cases use offline synthetic repositories and FakeRuntime;
 they do not establish live product execution or complete missing usage telemetry.
 
-Current offline suite: **133 passed** on Python 3.11.16 / macOS arm64 (2026-09-27). GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Current offline suite: **137 passed** on Python 3.11.16 / macOS arm64 (2026-09-27). GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
 Planning regressions distinguish a clean ancestor checkout from edited, deleted or
 independently committed local governing instructions, without changing that checkout.
+Task handoffs skip repository history, and optional history failures remain explicitly
+unavailable while preventing unsupported cross-root grouping.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.

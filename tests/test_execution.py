@@ -58,6 +58,18 @@ def test_stale_clean_authority_uses_current_base_but_preserves_local_changes(cfg
     assert (guide.read_text() if guide.exists() else None)==content
 
 
+@pytest.mark.parametrize('blocker',['branch-policy','missing-contract'])
+def test_handoff_does_not_inventory_cold_history(cfg,monkeypatch,blocker):
+    repo=Path(cfg['projects']['demo']['path'])
+    if blocker=='branch-policy': (repo/'AGENTS.md').write_text('Work only on main.\n')
+    else: (repo/'BACKLOG.md').write_text('EXECUTE: current work without a bounded contract.\n')
+    git(repo,'add','AGENTS.md','BACKLOG.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Handoff authority')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    monkeypatch.setattr('devfactory.tasks.ensure_profile',lambda *args:pytest.fail('Unexecutable plan must not scan history'))
+    assert resolve(cfg,'demo')['state']=='NATIVE_HANDOFF'
+
+
 def test_repair_uses_delta_packet_and_stronger_review(cfg):
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},
