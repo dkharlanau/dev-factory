@@ -90,6 +90,15 @@ def scopes_overlap(left, right):
     return any(pair(a,b) for a in left for b in right)
 
 
+def review_deferral_eligible(plan):
+    """Only a single low/low/strong slice may enter the Phase B experiment."""
+    task=plan.get('task') or {}
+    return (plan.get('state')=='EXECUTE' and len(plan.get('tasks') or [task])==1
+            and plan.get('profile')=='fast' and plan.get('risk')=='low'
+            and task.get('complexity')=='low' and task.get('verification')=='strong'
+            and bool(task.get('checks')) and bool(task.get('paths')))
+
+
 def role_usage(turns):
     from .policy import TOKEN_FIELDS
     groups={}
@@ -254,9 +263,15 @@ class Runner:
 
     def close(self): self.store.close()
 
-    def run(self, project, *, max_tasks=1, baseline=False):
+    def run(self, project, *, max_tasks=1, baseline=False, defer_review=False):
         if not 1 <= max_tasks <= 10:
             raise Stop('BLOCKED_POLICY','max-tasks must be 1..10')
+        cohort=None
+        if defer_review:
+            if max_tasks<2 or baseline or self.config['batching']['enabled'] or any(
+                self.config['integration'][key] for key in ('push','pull_request')):
+                raise Stop('BLOCKED_POLICY','Deferred review requires 2+ slices, disabled micro-batching and local-only integration')
+            cohort=self._preflight_review_deferral(project,max_tasks)
         self.config['_completed_keys']=[]
         self.config['_planning_cache']={}
         outcomes=[]; queued_scopes=[]; queue_started=time.time(); executed=0; skipped_existing=set()
@@ -267,6 +282,14 @@ class Runner:
             plan=self.planner(self.config,project,mutate=True,batch_limit=batch_limit)
             if plan['state']!='EXECUTE':
                 outcomes.append(plan); break
+            if defer_review and not review_deferral_eligible(plan):
+                outcomes.append({'state':'NATIVE_HANDOFF','project':project,'task':plan.get('task'),
+                    'reason':'Selected slice no longer meets low-risk/low-complexity/strong-verification deferral gate'})
+                break
+            if defer_review and (plan['task_key'],plan['contract_hash'],plan['base_sha'])!=cohort[executed]:
+                outcomes.append({'state':'NATIVE_HANDOFF','project':project,'task':plan.get('task'),
+                    'reason':'Deferred-review cohort changed after preflight; no new model turn dispatched'})
+                break
             keys=plan_member_keys(plan)
             ids=[t['id'] for t in (plan.get('tasks') or [plan['task']])]
             if scopes_overlap(queued_scopes,plan['task']['paths']):
@@ -284,6 +307,10 @@ class Runner:
                 if not run_matches_plan(previous,plan):
                     outcomes.append({'state':'NATIVE_HANDOFF','run_id':previous['id'],
                                      'reason':'Existing task contract/base changed; reconcile preserved work before a new implementation'})
+                    break
+                if previous['state']=='REVIEW_DEFERRED_LOCAL':
+                    outcomes.append({'state':'REVIEW_PENDING','run_id':previous['id'],
+                                     'reason':'Deferred slice awaits a full reviewed batch or explicit per-slice fallback review'})
                     break
                 if previous['state'] in TERMINAL:
                     prior_keys=previous['data'].get('member_task_keys') or [previous['task_key']]
@@ -308,7 +335,9 @@ class Runner:
                                     for t in (plan.get('tasks') or [plan['task']])],
                   'member_task_keys':keys,'member_contract_hashes':hashes,'members':members,
                   'task_source':plan['task']['source'],'task_category':plan['task'].get('category','unknown'),
-                  'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
+                  'risk':plan['risk'],'complexity':plan['task'].get('complexity'),
+                  'verification':plan['task'].get('verification'),'defer_review':defer_review,
+                  'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
                   'base_branch':plan['base_branch'],'repository':plan['repository'],
                   'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
                   'policy_version':self.config.get('policy_version'),
@@ -330,6 +359,7 @@ class Runner:
             try:
                 self.store.claim(rid)
                 result=self._execute(rid,plan); outcomes.append(result)
+                if defer_review and result['state']!='REVIEW_DEFERRED_LOCAL': break
                 if result['state'] in TERMINAL:
                     for key in keys:
                         if key not in self.config['_completed_keys']: self.config['_completed_keys'].append(key)
@@ -343,13 +373,49 @@ class Runner:
                 self.store.release(rid)
         return outcomes
 
-    def resume(self, rid, *, revalidate=False, local_plan=None):
+    def _preflight_review_deferral(self, project, count):
+        previous_keys=self.config.get('_completed_keys')
+        previous_cache=self.config.get('_planning_cache')
+        self.config['_completed_keys']=[]
+        self.config['_planning_cache']={}
+        scopes=[];base=None;cohort=[]
+        try:
+            for _ in range(count):
+                plan=self.planner(self.config,project,mutate=True,batch_limit=1)
+                if not review_deferral_eligible(plan):
+                    raise Stop('BLOCKED_BATCH','Deferred-review preflight needs the full low/low/strong cohort')
+                if base is not None and plan['base_sha']!=base:
+                    raise Stop('BLOCKED_BATCH','Deferred-review cohort must share one exact base')
+                base=plan['base_sha']
+                paths=plan['task']['paths']
+                if scopes_overlap(scopes,paths):
+                    raise Stop('BLOCKED_BATCH','Deferred-review cohort has overlapping declared scopes')
+                scopes.extend(paths)
+                key=plan['task_key']
+                if key in self.config['_completed_keys']:
+                    raise Stop('BLOCKED_BATCH','Deferred-review preflight repeated a task')
+                if self.store.existing(key):
+                    raise Stop('BLOCKED_BATCH','Deferred-review cohort contains a saved run; reconcile it first')
+                self.config['_completed_keys'].append(key)
+                cohort.append((key,plan['contract_hash'],base))
+            return cohort
+        finally:
+            if previous_keys is None: self.config.pop('_completed_keys',None)
+            else: self.config['_completed_keys']=previous_keys
+            if previous_cache is None: self.config.pop('_planning_cache',None)
+            else: self.config['_planning_cache']=previous_cache
+
+    def resume(self, rid, *, revalidate=False, local_plan=None, review_deferred=False):
         run = self.store.get(rid)
+        if review_deferred:
+            if (run['state']!='REVIEW_DEFERRED_LOCAL' or revalidate or local_plan is not None):
+                raise Stop('BLOCKED_RECONCILIATION','Deferred fallback needs an unchanged local deferred slice')
+            local_plan=self.store.path/'runs'/rid/'plan.json'
         if revalidate and (run['state']!='NATIVE_HANDOFF' or run['data'].get('phase')!='repair'
                            or run['data'].get('in_flight') or not run['data'].get('tests')
                            or not any(t.get('exit_code')!=0 for t in run['data']['tests'])):
             raise Stop('BLOCKED_RECONCILIATION','Revalidation requires an idle validation handoff')
-        if run['state'] in TERMINAL:
+        if run['state'] in TERMINAL and not review_deferred:
             return {'state':'EXISTING_COMPLETION','run_id':rid}
         self.store.claim(rid,recovering=True)
         try:
@@ -401,6 +467,12 @@ class Runner:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree changed outside Factory after checkpoint')
                 if d.get('reviewed_fingerprint') and fingerprint(wt,d['base_sha'])!=d['reviewed_fingerprint']:
                     d['phase']='validate'; d['review']=None
+                if review_deferred and (fingerprint(wt,d['base_sha'])!=d.get('deferred_fingerprint')
+                                        or d.get('validated_fingerprint')!=d.get('deferred_fingerprint')):
+                    raise Stop('BLOCKED_RECONCILIATION','Deferred slice changed before fallback review')
+            if review_deferred:
+                d['phase']='review'
+                d['deferred_fallback_review']=True
             if revalidate:
                 d['phase']='validate';d['review']=None;d['acceptance']=None
                 d['operator_revalidations']=d.get('operator_revalidations',0)+1
@@ -707,6 +779,8 @@ class Runner:
                                 self._repair(d)
                         else:
                             if verdict['verdict']=='BLOCKED': raise Stop('NATIVE_HANDOFF','Builder reports capability/authority blocker')
+                            if verdict['verdict']!='PASS' or verdict.get('findings'):
+                                d['builder_repair_signal']=True
                             d['phase']='validate'
                     elif phase=='validate':
                         validate_scope(wt,d['base_sha'],plan['task']['paths'])
@@ -750,7 +824,22 @@ class Runner:
                                 raise Stop('BLOCKED_INFRASTRUCTURE','Validation executable unavailable')
                             self._repair(d)
                         else:
-                            d['validated_fingerprint']=fingerprint(wt,d['base_sha']); d['phase']='review'
+                            d['validated_fingerprint']=fingerprint(wt,d['base_sha'])
+                            clean=(d.get('defer_review') and d['profile']=='fast' and d['risk']=='low'
+                                   and d.get('complexity')=='low' and d.get('verification')=='strong'
+                                   and not d.get('builder_repair_signal')
+                                   and not any(d.get(key,0) for key in ('repairs','failures','escalations','routing_upgrades'))
+                                   and all(t.get('exit_code')==0 for t in d['tests']))
+                            d['phase']='deferred_ready' if clean else 'review'
+                    elif phase=='deferred_ready':
+                        if fingerprint(wt,d['base_sha'])!=d['validated_fingerprint']:
+                            raise Stop('BLOCKED_RECONCILIATION','Deferred slice changed after validation')
+                        d['head_sha']=git(wt,'rev-parse','HEAD')
+                        d['changed_files']=changed(wt,d['base_sha'])
+                        d['deferred_fingerprint']=d['validated_fingerprint']
+                        d['disposition']='REVIEW_DEFERRED_LOCAL'
+                        checkpoint(d['disposition'],'Checks passed; acceptance awaits one combined fresh review')
+                        return self.store.get(rid)
                     elif phase=='ready':
                         if fingerprint(wt,d['base_sha'])!=d['reviewed_fingerprint']:
                             raise Stop('BLOCKED_RECONCILIATION','Reviewed file state changed')

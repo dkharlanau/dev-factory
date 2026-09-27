@@ -41,6 +41,113 @@ def reviewed_pair(cfg):
     return runs
 
 
+def deferred_pair(cfg, *, second_override=None):
+    repo=Path(cfg['projects']['demo']['path'])
+    second=copy.deepcopy(TASK)
+    second.update(id='second',priority=2,description='Create bounded independent note.',
+                  acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
+    second.update(second_override or {})
+    with (repo/'BACKLOG.md').open('a') as out:
+        out.write('\n```factory-task\n'+json.dumps(second)+'\n```\n')
+    git(repo,'add','BACKLOG.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Deferred second task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
+        'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['pass']
+    cfg['batching']['enabled']=False
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try: runs=runner.run('demo',max_tasks=2,defer_review=True)
+    finally: runner.close()
+    return runs
+
+
+def test_deferred_cohort_needs_one_fresh_combined_review(cfg):
+    runs=deferred_pair(cfg)
+    assert [r['state'] for r in runs]==['REVIEW_DEFERRED_LOCAL']*2
+    assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','build']
+    assert all(r['data']['acceptance'] is None and r['data']['review'] is None for r in runs)
+    ordinary=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try: pending=ordinary.run('demo')[0]
+    finally: ordinary.close()
+    assert pending['state']=='REVIEW_PENDING' and len(FakeRuntime.turns)==2
+    with pytest.raises(Stop,match='Phase A'):
+        compose_reviewed_slices(runs,cfg['state_dir'])
+    batch=compose_reviewed_slices(runs,cfg['state_dir'],deferred=True)
+    assert batch['review_mode']=='deferred' and batch['model_turns']==0
+    assert all(c['review_state']=='deferred' and c['validation_checks'] for c in batch['children'])
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BATCH_READY_LOCAL' and result['review']=='PASS'
+    assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','build','review']
+    assert review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)==result
+    assert len(FakeRuntime.turns)==3
+
+
+def test_deferred_composition_refuses_mutated_or_unclean_slice(cfg):
+    runs=deferred_pair(cfg)
+    first=copy.deepcopy(runs[0])
+    first['data']['repairs']=1
+    with pytest.raises(Stop,match='clean low/low/strong'):
+        compose_reviewed_slices([first,runs[1]],cfg['state_dir'],deferred=True)
+    first=copy.deepcopy(runs[0]);first['data']['risk']='high'
+    with pytest.raises(Stop,match='clean low/low/strong'):
+        compose_reviewed_slices([first,runs[1]],cfg['state_dir'],deferred=True)
+    wt=Path(runs[0]['data']['worktree'])
+    (wt/'clamp.py').write_text('changed after validation\n')
+    with pytest.raises(Stop,match='changed after validation'):
+        compose_reviewed_slices(runs,cfg['state_dir'],deferred=True)
+
+
+def test_deferred_slice_can_fall_back_to_independent_review(cfg):
+    runs=deferred_pair(cfg)
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try: result=runner.resume(runs[0]['id'],review_deferred=True)
+    finally: runner.close()
+    assert result['state']=='READY_LOCAL'
+    assert result['data']['review']=='PASS' and result['data']['deferred_fallback_review']
+    assert len(FakeRuntime.turns)==3
+
+
+@pytest.mark.parametrize('override',[
+    {'complexity':'high'},
+    {'paths':['clamp.py']},
+    {'verification':'weak'},
+])
+def test_deferred_preflight_refuses_unsafe_cohort_before_model_turn(cfg,override):
+    with pytest.raises(Stop,match='Deferred-review'):
+        deferred_pair(cfg,second_override=override)
+    assert FakeRuntime.turns==[]
+
+
+def test_builder_repair_signal_forces_per_slice_review(cfg):
+    FakeRuntime.outcomes=[{'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'Check carefully'}],
+                           'summary':'Build uncertain'}]
+    runs=deferred_pair(cfg)
+    assert len(runs)==1 and runs[0]['state']=='READY_LOCAL'
+    assert runs[0]['data']['builder_repair_signal'] is True
+    assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','review']
+
+
+def test_deferred_combined_check_failure_spends_no_review_turn(cfg):
+    runs=deferred_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'],deferred=True)
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','raise SystemExit(1)']
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BLOCKED_BATCH_VALIDATION' and result['model_turns']==0
+    assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','build']
+
+
+def test_deferred_combined_review_defect_blocks_acceptance(cfg):
+    runs=deferred_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'],deferred=True)
+    FakeRuntime.outcomes=[{'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'Incorrect edge case'}],
+                           'summary':'Integration defect'}]
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BLOCKED_BATCH_REVIEW' and result['review']=='REPAIR'
+    assert result['findings'][0]['file']=='clamp.py'
+
+
 def test_compose_reviewed_slices_is_exact_and_idempotent(cfg):
     runs=reviewed_pair(cfg)
     turns=len(FakeRuntime.turns)

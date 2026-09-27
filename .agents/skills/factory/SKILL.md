@@ -7,6 +7,10 @@ Dispatch with `python3 <skill-directory>/scripts/dispatch.py <arguments>`.
 With no arguments run `doctor`. Commands also include `prep <project>` and
 `compile <project> --max-tasks N`; both use zero model turns. Optional post-review composition uses
 `batch <run-id> <run-id> [...]` (zero model turns) followed by explicit `batch-review <batch-id>`.
+The opt-in Phase B experiment uses `run <project> --max-tasks N --experimental-defer-review`
+only for a preflighted low/low/strong disjoint local cohort, then `batch <run-id> <run-id> [...]
+--deferred` and `batch-review`. A deferred slice is not accepted until the combined review
+passes; `resume <run-id> --review-deferred` provides a fresh per-slice fallback.
 Only an explicitly requested, exact-snapshot-approved `batch-integrate <batch-id>` may push
 the reviewed batch commit and open one draft PR; it never merges or deploys.
 Product work still requires explicit `run <project> --max-tasks N`.
@@ -27,6 +31,8 @@ Use prep for hygiene/context inspection and compile for a backlog batch preview.
 never delete tracked project files, rewrite Git history, prune branches, or restructure source as an implicit prep step.
 
 
-Post-review composition is optional and distinct from pre-build micro-batching. Use it only when separate
-READY_LOCAL slices share the same base and have disjoint scopes. `batch` composes exact reviewed deltas
-without a model; `batch-review` is the single model-spending integration gate. Never invoke it implicitly.
+Post-review composition is optional and distinct from pre-build micro-batching. The default path
+requires READY_LOCAL slices sharing one base and disjoint scopes. Only an explicit Phase B
+experiment may compose REVIEW_DEFERRED_LOCAL slices that passed its stricter eligibility and
+validation gates. `batch` composes exact deltas without a model; `batch-review` is the single
+model-spending integration gate. Never invoke it implicitly.
