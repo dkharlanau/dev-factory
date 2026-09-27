@@ -173,14 +173,17 @@ still unverified. The parent skill attaches any created PR.
 ```sh
 ./factory benchmark          # offline, zero model turns
 ./factory benchmark --live   # synthetic model/effort routing comparison inside Factory
-.venv/bin/python scripts/evaluation/run.py  # prepare real task snapshots, zero model turns
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant native
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant factory
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1  # prepare, zero model turns
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant native
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant factory
+.venv/bin/python scripts/evaluation/export.py --experiment policy-v2-r1
 ```
 
 The live fixture command runs Factory in both arms and compares model/effort routing.
 The separate evaluation harness uses direct SDK execution for the native baseline,
-with identical pairwise source/spec/checks and isolated histories. Five pairs have
+with identical pairwise source/spec/checks and isolated histories. Each new policy or
+replicate uses an explicit experiment namespace, so historical receipts cannot be
+mistaken for current-policy evidence. Five pairs have
 run; completed-work cost savings are unproven. Read the [results and limitations](docs/benchmarks/RESULTS.md)
 and [reproduction protocol](docs/benchmarks/METHODOLOGY.md).
 See [capability matrix](docs/CAPABILITIES.md), [architecture](docs/ARCHITECTURE.md),

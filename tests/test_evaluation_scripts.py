@@ -19,6 +19,22 @@ def test_completed_experiment_reuses_receipt_without_new_work(tmp_path,monkeypat
     assert receipt.read_text()=='{"preserve":"original result"}\n'
 
 
+def test_evaluation_experiment_namespace_is_stable_and_rejects_unsafe_names():
+    folder=Path(__file__).resolve().parents[1]/'scripts/evaluation'
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.syspath_prepend(str(folder))
+        namespace=runpy.run_path(str(folder/'run.py'),run_name='evaluation_namespace_test')
+        slug=namespace['experiment_slug']
+        area=namespace['experiment_area']
+        assert slug('policy-v2-r1')=='policy-v2-r1'
+        assert area('policy-v2-r1').parts[-2:]==('experiments','policy-v2-r1')
+        for invalid in ('../x','Policy V2','', 'x'*65):
+            with pytest.raises(ValueError): slug(invalid)
+    finally:
+        monkeypatch.undo()
+
+
 def test_legacy_profile_benchmark_keeps_existing_run_identities(cfg,monkeypatch):
     from devfactory.benchmark import benchmark
     from devfactory.runner import Runner

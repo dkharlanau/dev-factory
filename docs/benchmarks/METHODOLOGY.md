@@ -71,15 +71,22 @@ compaction. No merge, deploy, production remote or scheduler is used.
 
 ## Reproduction
 
+Historical results in `docs/benchmarks/results.json` are immutable evidence for the
+original 2026-09-26 run. New policies use isolated experiment namespaces so saved
+threads, receipts, worktrees and assessments cannot be silently reused across policies.
+
 ```
-.venv/bin/python scripts/evaluation/run.py                 # prepare only, no model
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant native
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant factory
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant native
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant factory
+.venv/bin/python scripts/evaluation/export.py --experiment policy-v2-r1
 ```
 
-Repeat the last two commands in the stated order for remaining case IDs `medium`,
-`debug`, `refactor`, `long`. Existing final receipts are reused; an incomplete native
-checkout refuses redispatch. Preserve artifacts before conducting an independent
+Use `policy-v2-r2`, `policy-v2-r3`, and so on for independent repetitions.
+
+Repeat the two live commands in the stated order for remaining case IDs `medium`,
+`debug`, `refactor`, `long`. Existing final receipts are reused only inside the
+same experiment namespace; an incomplete native checkout refuses redispatch. Preserve artifacts before conducting an independent
 replication in a separate installation/state directory. Local results and output
 snapshots live under `.factory/evaluation`; portable results are under this directory.
 Reproduction snapshot commit IDs may differ across installations due to commit times;

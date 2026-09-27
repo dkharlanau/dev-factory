@@ -27,9 +27,20 @@ AREA=ROOT/'.factory/evaluation'
 CASES=json.loads(Path(__file__).with_name('cases.json').read_text())
 PYTHON=str(ROOT/'.venv/bin/python')
 CHECK=[PYTHON,'-m','unittest','discover','-s','tests']
+DEFAULT_EXPERIMENT='policy-v2-r1'
 
 
-def prepare(case):
+def experiment_slug(value):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',value or ''):
+        raise ValueError('Experiment must be a lowercase slug up to 64 characters')
+    return value
+
+
+def experiment_area(experiment):
+    return AREA/'experiments'/experiment_slug(experiment)
+
+
+def prepare(case, experiment=DEFAULT_EXPERIMENT):
     upstream=AREA/'upstream'
     if not upstream.exists():
         command(['git','clone','--quiet','--no-tags','https://github.com/more-itertools/more-itertools.git',str(upstream)],timeout=120)
@@ -51,7 +62,7 @@ def prepare(case):
     meta=json.loads((AREA/'sources'/f'{case["id"]}.json').read_text())
     if meta['case_hash']!=digest(case): raise RuntimeError('Frozen case changed; use a separate experiment directory')
     cfg=load(ROOT)
-    cfg['state_dir']=str(AREA/'state'/case['id'])
+    cfg['state_dir']=str(experiment_area(experiment)/'state'/case['id'])
     cfg['projects']={case['id']:{'fixture':True,'path':str(path),'base_sha':meta['snapshot_sha'],
         'instructions':[],'backlogs':['EVALUATION_TASK.md'],'checks':{'suite':CHECK},'final_checks':['suite'],
         'high_risk_paths':[],'boundary':'Local upstream snapshot. No upstream contact or access to other evaluation variants.'}}
@@ -100,8 +111,8 @@ class MeasuredRuntime(Runtime):
         return result
 
 
-def assess(wt,base,case,rt,label):
-    destination=AREA/'assessments'/label
+def assess(wt,base,case,rt,label,experiment):
+    destination=experiment_area(experiment)/'assessments'/label
     review_snapshot(wt,destination,base)
     t=time.monotonic()
     suite=rt.command(destination,CHECK,timeout=180)
@@ -117,18 +128,20 @@ def assess(wt,base,case,rt,label):
         'logs':str(destination)}
 
 
-def native(case,cfg,meta):
-    path=AREA/'native'/case['id']
+def native(case,cfg,meta,experiment):
+    path=experiment_area(experiment)/'native'/case['id']
     if path.exists(): raise RuntimeError('Native checkout exists without a final receipt; reconcile before redispatch')
     command(['git','clone','--quiet','--no-hardlinks',cfg['projects'][case['id']]['path'],str(path)])
     plan=resolve(cfg,case['id']); usage=Usage();turns=[]; started=time.monotonic()
     deadline=time.time()+cfg['budget']['deadline_seconds']
-    payload=json.dumps({'task':{k:v for k,v in plan['task'].items() if k!='source'},'validation_commands':[CHECK]})
+    payload=json.dumps({'task':{k:plan['task'][k] for k in ('id','description','acceptance','paths')},
+                        'validation_commands':[CHECK]},separators=(',',':'))
     outcome='UNKNOWN';checks=[]
     with MeasuredRuntime(path) as rt:
         selection=choose_model(plan['profile'],cfg,rt.catalog,rt.native,baseline=True)
         print('Native child: native model/effort defaults',rt.native,flush=True)
-        tid=rt.start(path,selection,WORKER_RULES.replace('DevFactory runs one bounded local task.','Run one local development task.')+'\nImplement the complete task, run the supplied validation and self-review the diff. Do not commit.\n')
+        native_rules=WORKER_RULES.replace('DevFactory runs one bounded local task;','Run one local development task;')
+        tid=rt.start(path,selection,native_rules+'\nImplement the complete task, run the supplied validation and self-review the diff. Do not commit.\n')
         for attempt in range(3):
             try:
                 check_budget(cfg['budget'],deadline=deadline,turns=len(turns),tokens=usage.aggregate()['totalTokens'])
@@ -145,13 +158,13 @@ def native(case,cfg,meta):
             if validation.get('exitCode')==0: outcome='COMPLETE_SELF_REVIEWED';break
             payload='The configured test suite failed. Diagnose and repair within original task scope, preserving tests.\n'+validation.get('stdout','')[-8000:]+validation.get('stderr','')[-8000:]
         seconds=time.monotonic()-started
-        evaluation=assess(path,meta['snapshot_sha'],case,rt,case['id']+'-native')
+        evaluation=assess(path,meta['snapshot_sha'],case,rt,case['id']+'-native',experiment)
     return {'state':outcome,'turns':turns,'usage':usage.aggregate(),'workflow_seconds':seconds,'worktree':str(path),
         'repairs':len(turns)-1,'checks':checks,'independent_review':'not part of direct workflow; common external behavioral assessment follows',
         'assessment':evaluation,'human_interventions':0}
 
 
-def factory(case,cfg,meta):
+def factory(case,cfg,meta,experiment):
     started=time.monotonic(); runner=Runner(cfg,runtime_factory=MeasuredRuntime)
     try:
         run=runner.run(case['id'])[0]
@@ -161,31 +174,35 @@ def factory(case,cfg,meta):
     finally:runner.close()
     seconds=time.monotonic()-started
     with Runtime(d['worktree']) as rt:
-        evaluation=assess(Path(d['worktree']),meta['snapshot_sha'],case,rt,case['id']+'-factory')
+        evaluation=assess(Path(d['worktree']),meta['snapshot_sha'],case,rt,case['id']+'-factory',experiment)
     return {'state':run['state'],'turns':d['turns'],'usage':d['usage'],'workflow_seconds':seconds,'worktree':d['worktree'],
         'repairs':d['repairs'],'checks':[{'exit_code':t['exit_code']} for t in d['tests']],
         'independent_review':d.get('review'),'review_findings':d.get('findings',[]),'review_summary':d.get('review_summary'),
         'repeat':repeat,'receipt_id':run['id'],'assessment':evaluation,'human_interventions':0,
+        'efficiency':d.get('efficiency'),'usage_by_role':d.get('usage_by_role'),
         'reason':d.get('reason'),'phase':d.get('phase')}
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--live',action='store_true')
     parser.add_argument('--case',choices=[c['id'] for c in CASES]);parser.add_argument('--variant',choices=['native','factory'])
+    parser.add_argument('--experiment',default=DEFAULT_EXPERIMENT,type=experiment_slug)
     args=parser.parse_args()
     selected=[c for c in CASES if not args.case or c['id']==args.case]
     for case in selected:
-        cfg,meta=prepare(case)
+        cfg,meta=prepare(case,args.experiment)
         if not args.live:
             print(case['id'],meta,flush=True);continue
         if not args.variant:parser.error('--live requires --variant (one foreground run)')
-        receipt=AREA/'results'/f'{case["id"]}-{args.variant}.json'
+        receipt=experiment_area(args.experiment)/'results'/f'{case["id"]}-{args.variant}.json'
         if receipt.exists(): print('EXISTING_EVALUATION',receipt,flush=True);continue
         MeasuredRuntime.measurements=[]
         print('START',case['id'],args.variant,meta,flush=True)
-        result=(native if args.variant=='native' else factory)(case,cfg,meta)
+        result=(native if args.variant=='native' else factory)(case,cfg,meta,args.experiment)
         wt=Path(result['worktree'])
         result.update(case=case['id'],category=case['category'],variant=args.variant,meta=meta,
+            experiment=args.experiment,policy_version=cfg['policy_version'],
+            budget={k:cfg['budget'].get(k) for k in ('soft_tokens','max_turns','max_queue_turns','deadline_seconds','allowance_reserve_percent')},
             runtime='0.157.1',factory_revision=git(ROOT,'rev-parse','HEAD'),
             measurement=MeasuredRuntime.measurements,changed_files=changed(wt,meta['snapshot_sha']),
             diff_numstat=git(wt,'diff','--numstat',meta['snapshot_sha']),
