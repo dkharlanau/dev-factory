@@ -87,10 +87,10 @@ def test_receipt_active_time_excludes_pause_and_keeps_role_metrics(cfg):
     finally:r.close()
 
 
-def test_unimplemented_automatic_compaction_is_not_silently_enabled(tmp_path):
+def test_automatic_compaction_policy_is_explicit_and_bounded(tmp_path):
     from devfactory.config import load
-    config=tmp_path/'local.toml';config.write_text('[context]\nmanual_compaction = true\n')
-    with pytest.raises(Stop,match='not implemented'):load(tmp_path,config)
+    config=tmp_path/'local.toml';config.write_text('[context]\nfactory_auto_compaction = true\ncompact_after_builder_turns = 0\n')
+    with pytest.raises(Stop,match='compact_after_builder_turns'):load(tmp_path,config)
 
 
 def test_missing_compaction_usage_does_not_double_charge_next_role():
@@ -104,3 +104,16 @@ def test_missing_compaction_usage_does_not_double_charge_next_role():
     assert usage['compaction']['totalTokens'] is None
     assert usage['repair']['totalTokens'] is None # unknown split across compaction/repair
     assert usage['review']['totalTokens']==25
+
+
+def test_known_v31_checkpoint_matches_only_compaction_policy_migration(cfg):
+    from copy import deepcopy
+    from devfactory.runner import config_fingerprint,legacy_compaction_config_fingerprint
+    old=deepcopy(cfg)
+    old['policy_version']='3.1'
+    for key in ('factory_auto_compaction','compact_after_builder_turns','compact_min_remaining_tokens'):
+        old['context'].pop(key,None)
+    old['context']['manual_compaction']=False
+    assert legacy_compaction_config_fingerprint(cfg,'demo')==config_fingerprint(old,'demo')
+    changed=deepcopy(cfg);changed['budget']['max_turns']-=1
+    assert legacy_compaction_config_fingerprint(changed,'demo')!=config_fingerprint(old,'demo')

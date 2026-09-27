@@ -29,6 +29,7 @@ def test_version_mismatch(monkeypatch):
 
 def test_worker_config_scoped_disables_and_no_private_sdk_fields():
     r=object.__new__(Runtime);r.disabled_servers=['unsafe'];r.plugins=['example@marketplace']
+    r.network_access=False
     c=r.worker_config()
     assert c['features.hooks'] is False and c['features.apps'] is False
     assert c['mcp_servers.unsafe.enabled'] is False
@@ -37,6 +38,26 @@ def test_worker_config_scoped_disables_and_no_private_sdk_fields():
     assert '.client._' not in source
     assert 'experimental_api=False' in source
     assert 'sandbox_workspace_write.network_access' in source
+
+
+def test_owner_network_permission_reaches_both_codex_sandboxes():
+    from devfactory.policy import Stop
+    r=object.__new__(Runtime);r.disabled_servers=[];r.plugins=[]
+    r.configure_sandbox(network_access=True)
+    assert r.worker_config()['sandbox_workspace_write.network_access'] is True
+    calls=[]
+    r.rpc=lambda method,params:(calls.append((method,params)) or {'exitCode':0})
+    r.command(Path.cwd(),['true'])
+    assert calls[0][1]['sandboxPolicy']['networkAccess'] is True
+    with pytest.raises(Stop):r.configure_sandbox(network_access='yes')
+
+
+def test_project_network_access_is_an_explicit_boolean(tmp_path):
+    from devfactory.config import load
+    p=tmp_path/'factory.local.toml'
+    p.write_text('[projects.ptichi-site]\nnetwork_access = "yes"\n')
+    with pytest.raises(Stop,match='network_access must be boolean'):
+        load(tmp_path,p)
 
 
 def test_manifest_and_skill():
@@ -136,6 +157,35 @@ def test_compaction_refuses_active_turn():
     r=object.__new__(Runtime);r.read=lambda tid:{'thread':{'status':{'type':'active'}}}
     import time
     with pytest.raises(Stop,match='idle'):r.compact('t',deadline=time.time()+1,checkpoint={'task':'t'})
+
+
+def test_compaction_records_reconciliation_boundary_before_dispatch():
+    import time
+    r=object.__new__(Runtime)
+    r.read=lambda tid:{'thread':{'status':{'type':'idle'}}}
+    old={'id':'old','status':'completed','items':[]}
+    new={'id':'compact','status':'completed','items':[{'id':'item','type':'contextCompaction'}]}
+    events=[]
+    def rpc(method,params):
+        events.append(method)
+        if method=='thread/read':
+            reads=len([x for x in events if x=='thread/read'])
+            return {'thread':{'turns':[old] if reads==1 else [old,new]}}
+        return {}
+    r.rpc=rpc
+    result=r.compact('t',deadline=time.time()+2,checkpoint={'task':'t'},
+                     on_start=lambda boundary:events.append(('checkpoint',boundary)))
+    assert result['state']=='COMPLETED' and result['usage'] is None
+    assert events.index(('checkpoint',{'previous_turn_ids':['old']})) < events.index('thread/compact/start')
+
+
+def test_compaction_thresholds_reject_bool_and_unbounded_values(tmp_path):
+    from devfactory.config import load
+    for key,value in [('compact_after_builder_turns','true'),('compact_after_builder_turns','21'),
+                      ('compact_min_remaining_tokens','-1'),('compact_min_remaining_tokens','1000001')]:
+        local=tmp_path/'factory.local.toml'
+        local.write_text(f'[context]\n{key} = {value}\n')
+        with pytest.raises(Stop,match=key): load(tmp_path,local)
 
 
 def test_permissions_never_auto_approved():

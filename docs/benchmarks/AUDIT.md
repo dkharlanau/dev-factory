@@ -48,3 +48,15 @@ usage (for example compaction), the next cumulative snapshot was treated as if t
 thread started at zero. A 100-token build, unknown compaction, then cumulative 160
 could incorrectly attribute all 160 to repair. Overall per-thread budget totals were
 not affected. A regression test requires unknown role allocation across that gap.
+
+## Policy v3.2 compaction follow-up
+
+Factory now requests SDK compaction only before repair when the builder thread reaches
+its configured completed-turn threshold, cumulative usage is observable, and the
+configured token reserve plus three turn slots remain for compaction, repair and fresh
+review. A mode-0600 checkpoint binds the task contract, base, current source
+fingerprint, changed paths, checks and findings before dispatch. Compacted repairs
+receive the bounded contract again. Offline tests cover the trigger gates, persisted
+reconciliation boundary, missing-usage attribution and ambiguous-dispatch handoff.
+Native autocompaction remains enabled. The prior benchmark contains no evidence of
+token savings; compaction usage and context occupancy remain unknown.

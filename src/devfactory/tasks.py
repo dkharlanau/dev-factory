@@ -1,6 +1,7 @@
 """Resolve current task contracts from existing authority; batch only compatible work."""
 from __future__ import annotations
 import json
+import hashlib
 import re
 from pathlib import Path
 from .policy import Stop, screen_task, classify
@@ -11,6 +12,30 @@ from .navigation import ensure_profile, roots_related
 CONTRACT_KEYS = {'id','description','acceptance','paths','category','risk','complexity','verification',
                  'checks','dependencies','required_capabilities','priority','state','higher_risk_approved'}
 LOCAL_CAPABILITIES = {'shell','git','python','node','rust'}
+
+
+def worktree_authority(worktree, names):
+    """Read the pinned authority files already materialized in a preserved worktree."""
+    root=Path(worktree).resolve()
+    result=[]
+    for name in dict.fromkeys(names):
+        relative=Path(name)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise Stop('BLOCKED_RECONCILIATION','Configured authority path escapes the preserved worktree')
+        candidate=root/relative
+        if candidate.is_symlink():
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority file is a symlink in the preserved worktree')
+        if not candidate.exists():
+            continue
+        resolved=candidate.resolve(strict=True)
+        if not resolved.is_relative_to(root) or not resolved.is_file():
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority path is not a regular worktree file')
+        try:
+            text=resolved.read_bytes().decode('utf-8').replace('\r\n','\n').replace('\r','\n')
+        except (OSError,UnicodeDecodeError) as e:
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority file cannot be read as UTF-8') from e
+        result.append({'path':name,'sha256':hashlib.sha256(text.encode()).hexdigest(),'text':text})
+    return result
 
 def parse_contract(text):
     blocks = re.findall(r'```factory-task\s*\n(.*?)\n```',text,re.S)
@@ -104,6 +129,74 @@ def authority_approval(adapter, base, authority, tasks):
             or any(digest(t) not in approval.get('contract_hashes',[]) for t in tasks)):
         return {}
     return {k:approval.get(k) is True for k in ('isolated_branch','remote_authority')}
+
+
+def local_resume_plan(config, run, path):
+    """Continue only an existing contract; explicitly leave remote freshness unknown."""
+    if config['integration'].get('push') or config['integration'].get('pull_request'):
+        raise Stop('BLOCKED_POLICY','Local-plan resume requires local-only integration settings')
+    saved=run['data']; adapter=config['projects'][run['project']]
+    worktree=Path(saved.get('worktree',''))
+    if not saved.get('worktree') or not worktree.is_dir():
+        raise Stop('BLOCKED_RECONCILIATION','Local-plan resume requires the preserved worktree')
+    raw=Path(path).read_bytes()
+    if len(raw)>1_000_000:
+        raise Stop('BLOCKED_RECONCILIATION','Local plan exceeds the snapshot size limit')
+    plan=json.loads(raw)
+    if not isinstance(plan,dict):
+        raise Stop('BLOCKED_RECONCILIATION','Invalid local plan snapshot')
+    saved_plan_hash=saved.get('plan_snapshot_hash')
+    if saved_plan_hash and digest(plan)!=saved_plan_hash:
+        raise Stop('BLOCKED_RECONCILIATION','Local plan differs from its saved checkpoint fingerprint')
+    if (plan.get('state')!='EXECUTE' or plan.get('project')!=run['project']
+            or plan.get('base_sha')!=saved['base_sha']):
+        raise Stop('BLOCKED_RECONCILIATION','Local plan project or base differs from checkpoint')
+    tasks=plan.get('tasks') or [plan.get('task')]
+    if not tasks or not all(isinstance(t,dict) for t in tasks):
+        raise Stop('BLOCKED_RECONCILIATION','Local plan lacks task contracts')
+    hashes=[digest(t) for t in tasks]
+    expected=saved.get('member_contract_hashes') or [saved['contract_hash']]
+    aggregate_hash=hashes[0] if len(hashes)==1 else digest(hashes)
+    keys=[digest([adapter.get('repository',run['project']),t.get('id')]) for t in tasks]
+    if (hashes!=expected or aggregate_hash!=saved['contract_hash']
+            or keys!=(saved.get('member_task_keys') or [run['task_key']])):
+        raise Stop('BLOCKED_RECONCILIATION','Local task contract differs from checkpoint')
+    for task in tasks:
+        # Reapply task screening; no commands or owner policy can come from this file.
+        parse_contract('```factory-task\n'+json.dumps({k:v for k,v in task.items() if k!='source'})+'\n```')
+    checks=list(dict.fromkeys(c for t in tasks for c in t['checks']))
+    aggregate=plan.get('task') or {}
+    if (not isinstance(aggregate,dict)
+            or {k:aggregate.get(k) for k in ('id','description','acceptance','paths')}!=saved['task_contract']
+            or aggregate.get('checks')!=checks):
+        raise Stop('BLOCKED_RECONCILIATION','Local aggregate scope or checks differ from checkpoint')
+    names=list(dict.fromkeys(adapter.get('instructions',[])+adapter.get('backlogs',[])))
+    # Resume reads exact authority from the already materialized worktree. The
+    # public path/hash list is checked against the checkpoint plan below, avoiding
+    # a potentially blocking lazy fetch of commit blobs during a local-only resume.
+    authority=worktree_authority(worktree,names)
+    public=[{k:v for k,v in doc.items() if k!='text'} for doc in authority]
+    if public!=plan.get('authority'):
+        raise Stop('BLOCKED_RECONCILIATION','Local instruction authority differs from the base snapshot')
+    approval=authority_approval(adapter,saved['base_sha'],authority,tasks)
+    if approval!=saved.get('authority_approval',{}):
+        raise Stop('BLOCKED_RECONCILIATION','Local owner authority approval differs from checkpoint')
+    if branch_conflicts(authority) and not approval.get('isolated_branch'):
+        raise Stop('BLOCKED_RECONCILIATION','Local instruction authority requires native reconciliation')
+    for task in tasks:
+        _,risk=classify(task,adapter.get('high_risk_paths',[]))
+        if risk in ('high','unknown') and digest(task) not in adapter.get('approved_contracts',[]):
+            raise Stop('BLOCKED_RECONCILIATION','Exact high-risk approval is missing')
+    all_checks=checks+adapter.get('final_checks',[])+adapter.get('setup_checks',[])
+    if not adapter.get('final_checks') or any(c not in adapter.get('checks',{}) for c in all_checks):
+        raise Stop('BLOCKED_RECONCILIATION','Local named checks or final gate are unavailable')
+    # Reconstruct operational fields from the checkpoint/config, not editable plan metadata.
+    plan.update(repository=saved['repository'],base_branch=saved['base_branch'],
+                authority=public,authority_approval=approval,profile=saved['profile'],risk=saved['risk'],
+                contract_hash=saved['contract_hash'],member_contract_hashes=hashes,member_task_keys=keys,
+                task_key=run['task_key'],planning_snapshot='explicit-local-checkpoint',
+                remote_freshness='not_refreshed')
+    return plan
 
 
 def resolve(config, project, *, mutate=False, batch_limit=1):

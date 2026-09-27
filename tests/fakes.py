@@ -12,12 +12,16 @@ class FakeRuntime:
     history=[]
     turns=[]
     outcomes=[]
+    sandbox_permissions=[]
+    compactions=[]
     fail_tests=False
     interrupt=False
     def __init__(self,cwd,**kw):
         self.cwd=Path(cwd); self.catalog=CATALOG; self.native={'model':'fixture-model','model_reasoning_effort':'high'}
     def __enter__(self): return self
     def __exit__(self,*_): pass
+    def configure_sandbox(self,*,network_access=False):
+        self.__class__.sandbox_permissions.append({'cwd':str(self.cwd),'network_access':network_access})
     def quota(self): return QUOTA
     def inventory(self): return {'versions':{'runtime':'FAKE'}}
     def start(self,cwd,selection,instructions,read_only=False,resume=None):
@@ -46,6 +50,12 @@ class FakeRuntime:
         return {'status':'interrupted' if self.interrupt else 'completed','thread_id':tid,'turn_id':turn,
                 'final':json.dumps(verdict),'usage':usage,'effective_model':None,'resolved_model':'fixture-model',
                 **({'stop_state':'PAUSED'} if self.interrupt else {})}
+    def compact(self,tid,*,deadline,checkpoint,on_event=lambda *_:None,on_start=lambda *_:None):
+        boundary={'previous_turn_ids':[]}
+        on_start(boundary)
+        self.compactions.append({'thread':tid,'checkpoint':checkpoint})
+        return {'state':'COMPLETED','turn_id':'compact-'+str(len(self.compactions)),
+                'items':['fixture-compaction'],'evidence':'offline fixture','usage':None}
     def command(self,cwd,argv,**kwargs):
         if self.fail_tests: return {'exitCode':1,'stdout':'fixture assertion failed','stderr':''}
         r=subprocess.run(argv,cwd=cwd,capture_output=True,text=True)
@@ -56,5 +66,5 @@ class FakeRuntime:
 
 
 def reset():
-    FakeRuntime.history=[]; FakeRuntime.turns=[]; FakeRuntime.outcomes=[]
+    FakeRuntime.history=[]; FakeRuntime.turns=[]; FakeRuntime.outcomes=[]; FakeRuntime.sandbox_permissions=[]; FakeRuntime.compactions=[]
     FakeRuntime.fail_tests=False; FakeRuntime.interrupt=False

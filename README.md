@@ -8,7 +8,7 @@ Git, builds, tests and the supervisor run on your Mac.
 **Evaluated control layer, with a new cost-aware routing policy that still requires
 live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
 the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
-Version 3.1 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
+Version 3.2 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
 micro-batching, task-local repository navigation, failure-only logs, delta repair
 packets and staged validation, and lets a started batch finish its bounded quality gate.
 See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
@@ -71,6 +71,16 @@ warning-heavy stderr cannot displace compiler errors printed to stdout.
 An explicit sandbox denial of a loopback test listener stops as infrastructure
 blocked without spending a source-repair turn. It does not enable networking or
 retry the command outside the sandbox.
+
+To continue local work without another GitHub request, use
+`./factory resume <run-id> --local-plan .factory/runs/<run-id>/plan.json`.
+Each new run saves this plan; an older run can use its previously exported plan.
+The explicit option accepts only the existing contract and base, verifies instruction
+hashes against the local base and checks the current owner configuration and source
+fingerprint. It retains validation, independent review and all execution budgets.
+It also works with `--revalidate`. Push/PR integration must be disabled. Receipts mark
+remote freshness as `not_refreshed`; local completion does not prove current GitHub
+main, PR or dependency state. Ordinary resume still refreshes remote authority.
 
 ## Codex skill and plugin
 
@@ -175,9 +185,16 @@ are reported as unknown. Receipts include per-turn/check durations, active execu
 seconds excluding pauses, packet/instruction byte counts, estimated repeated packet
 bytes avoided, cached-input ratio when observable, and soft-budget overshoot. Byte
 counts are not tokens and cached input is not zero-cost. Missing intervening usage
-keeps per-role attribution unknown. Automatic Factory early compaction is unsupported:
-`context.manual_compaction=true` is rejected. The explicit manual adapter is available
-for controlled diagnostics; native autocompaction remains the execution policy.
+keeps per-role attribution unknown.
+
+Factory may compact a continuing builder thread before a repair after two completed
+builder turns. It first saves a mode-0600 checkpoint with the task contract, base and
+source fingerprints, changed paths, check outcomes, findings and remaining budgets.
+It skips explicit compaction when token usage is unknown or configured token/turn
+reserves for repair and fresh review are not available. Native SDK autocompaction stays
+enabled. Each repair re-receives the bounded task contract after compaction, and an
+ambiguous result stops for reconciliation. Compaction usage is not separately exposed,
+so this is a context-continuity safeguard, not a demonstrated token saving.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction

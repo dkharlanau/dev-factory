@@ -13,8 +13,10 @@
 - Compaction completion is confirmed by documented persisted turn/item state. SDK
   0.157.1 does not expose a pre-registered subscription for its unknown compaction turn
   ID. Live success was observed; no-op/failure/timeout/deadline guards are tested offline.
-  Its isolated usage remains unknown. Native autocompaction stays enabled. Automatic
-  Factory early compaction is not implemented; its enabling flag is rejected.
+  Its isolated usage remains unknown. Native autocompaction stays enabled. Policy v3.2
+  adds conditional Factory compaction before a continuing repair after a durable
+  checkpoint, known usage and reserved completion budget. This protects long-lived
+  repair context; token savings and current context occupancy remain unknown.
 - A runtime-reported model context window is available; current context occupancy is
   unknown. Cumulative tokens are not context occupation. Requested/resolved model is
   not proven serving model; effective model stays null without reroute telemetry.

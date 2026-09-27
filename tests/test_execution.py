@@ -197,6 +197,81 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
     finally: runner.close()
 
 
+def test_long_repair_thread_compacts_from_durable_checkpoint_and_reanchors_contract(cfg):
+    FakeRuntime.outcomes=[
+        {'verdict':'PASS','findings':[],'summary':'build'},
+        {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
+        {'verdict':'PASS','findings':[],'summary':'repaired'},
+        {'verdict':'PASS','findings':[],'summary':'reviewed'},
+    ]
+    cfg['context']['compact_after_builder_turns']=1
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        result=runner.run('demo')[0]; data=result['data']
+        assert result['state']=='READY_LOCAL'
+        assert len(FakeRuntime.compactions)==1
+        compaction=FakeRuntime.compactions[0]
+        checkpoint=compaction['checkpoint']
+        assert compaction['thread']==data['builder_thread']
+        assert checkpoint['next_action']=='repair'
+        assert checkpoint['contract_hash']==data['contract_hash']
+        assert checkpoint['changed_files']==['clamp.py']
+        assert checkpoint['source_fingerprint']
+        assert 'instructions' not in checkpoint and 'conversation' not in checkpoint
+        assert data['compactions'][0]['state']=='COMPLETED'
+        assert data['turns'][2]['role']=='compaction' and data['turns'][2]['usage_telemetry']=='unknown'
+        repair_record=next(t for t in data['turns'] if t['role']=='repair')
+        repair_packet=next(t['packet'] for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert repair_record['packet_mode']=='delta+contract'
+        assert repair_packet['task']['acceptance']==data['task_contract']['acceptance']
+        assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','review','repair','review']
+        assert FakeRuntime.turns[0]['thread']==FakeRuntime.turns[2]['thread']
+        assert FakeRuntime.turns[1]['thread']!=FakeRuntime.turns[3]['thread']
+        assert data['usage_by_role']['compaction']['totalTokens'] is None
+        assert data['usage_by_role']['repair']['totalTokens'] is None
+    finally: runner.close()
+
+
+def test_auto_compaction_reserves_token_and_turn_budget(cfg):
+    from devfactory.runner import compaction_due
+    from devfactory.policy import Usage
+    cfg['context']['compact_after_builder_turns']=1
+    data={'builder_thread':'b','turns':[{'thread_id':'b','role':'build'}],
+          'remaining_turns':6,'remaining_tokens':500000}
+    usage=Usage({'b':{'totalTokens':1000}})
+    assert compaction_due(data,cfg['context'],usage)==(True,'repair-checkpoint')
+    data['remaining_turns']=3
+    assert compaction_due(data,cfg['context'],usage)==(False,'completion-turn-reserve')
+    data['remaining_turns']=6;data['remaining_tokens']=1000
+    assert compaction_due(data,cfg['context'],usage)==(False,'completion-token-reserve')
+    assert compaction_due(data,cfg['context'],Usage())==(False,'token-usage-unknown')
+
+
+def test_ambiguous_compaction_preserves_repair_checkpoint_and_hands_off(cfg):
+    from devfactory.policy import Stop
+    FakeRuntime.outcomes=[
+        {'verdict':'PASS','findings':[],'summary':'build'},
+        {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
+    ]
+    cfg['context']['compact_after_builder_turns']=1
+    class LostCompactionResult(FakeRuntime):
+        def compact(self,tid,*,deadline,checkpoint,on_event=lambda *_:None,on_start=lambda *_:None):
+            on_start({'previous_turn_ids':[]})
+            raise Stop('BLOCKED_RUNTIME','connection ended after compaction dispatch')
+    runner=Runner(cfg,runtime_factory=LostCompactionResult,emit=lambda _:None)
+    try:
+        result=runner.run('demo')[0]; data=result['data']
+        assert result['state']=='NATIVE_HANDOFF'
+        assert data['in_flight']['role']=='compaction'
+        assert len(FakeRuntime.turns)==2
+        checkpoint=Path(data['compactions'][0]['checkpoint'])
+        assert checkpoint.is_file()
+        saved=json.loads(checkpoint.read_text())
+        assert saved['source_fingerprint'] and saved['next_action']=='repair'
+        assert (Path(data['worktree'])/'clamp.py').is_file()
+    finally: runner.close()
+
+
 def test_soft_token_envelope_does_not_skip_mandatory_review(cfg):
     cfg['budget']['soft_tokens']=1
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
@@ -313,6 +388,109 @@ def test_foreign_change_on_resume(cfg):
         Path(r['data']['worktree'],'clamp.py').write_text('foreign change')
         with pytest.raises(Stop,match='outside Factory'):runner.resume(r['id'])
         assert Path(r['data']['worktree'],'clamp.py').read_text()=='foreign change'
+    finally:runner.close()
+
+
+def test_local_plan_resume_never_refreshes_github_or_original_checkout(cfg,monkeypatch):
+    from devfactory import runner as module
+    FakeRuntime.interrupt=True
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        plan_path=Path(cfg['state_dir'])/'runs'/first['id']/'plan.json'
+        assert plan_path.is_file()
+        original_snapshot=module.snapshot
+        original_path=Path(cfg['projects']['demo']['path'])
+        def local_snapshot(path,*args,**kwargs):
+            assert Path(path)!=original_path, 'Original checkout must not be replanned'
+            return original_snapshot(path,*args,**kwargs)
+        def unavailable(*args,**kwargs):raise AssertionError('Remote planning must not run')
+        monkeypatch.setattr(module,'snapshot',local_snapshot)
+        monkeypatch.setattr(GitHub,'refresh',unavailable)
+        monkeypatch.setattr('devfactory.tasks.tracked_authority',
+                            lambda *_:pytest.fail('Local resume must use the pinned worktree authority'))
+        runner.planner=unavailable
+        FakeRuntime.interrupt=False
+        result=runner.resume(first['id'],local_plan=plan_path)
+        assert result['state']=='READY_LOCAL'
+        assert result['data']['authority_mode']=='local_snapshot'
+        assert result['data']['remote_freshness']=='not_refreshed'
+        assert result['data']['review']=='PASS'
+        assert result['data']['remaining_turns']==first['data']['remaining_turns']
+        assert FakeRuntime.history[-1]['resume'] is None
+    finally:runner.close()
+
+
+@pytest.mark.parametrize('change',['contract','checks','aggregate','authority','base','foreign','config','integration'])
+def test_local_resume_keeps_contract_authority_source_and_integration_gates(cfg,change):
+    FakeRuntime.interrupt=True
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        path=Path(cfg['state_dir'])/'runs'/first['id']/'plan.json'
+        plan=json.loads(path.read_text())
+        if change=='contract':plan['tasks'][0]['acceptance']='Skip required checks'
+        elif change=='checks':plan['tasks'][0]['checks']=[]
+        elif change=='aggregate':plan['task']['paths']=['.']
+        elif change=='authority':plan['authority']=[]
+        elif change=='base':plan['base_sha']='0'*40
+        elif change=='foreign':Path(first['data']['worktree'],'clamp.py').write_text('foreign work')
+        elif change=='config':cfg['projects']['demo']['checks']['new']=['true']
+        elif change=='integration':
+            # A matching checkpoint must still refuse network integration in local mode.
+            from devfactory.runner import config_fingerprint
+            cfg['integration']['push']=True
+            first['data']['config_hash']=config_fingerprint(cfg,'demo')
+            runner.store.save(first['id'],first['state'],first['data'])
+        path.write_text(json.dumps(plan))
+        before=len(FakeRuntime.turns)
+        with pytest.raises(Stop):runner.resume(first['id'],local_plan=path)
+        assert len(FakeRuntime.turns)==before
+    finally:runner.close()
+
+
+def test_local_plan_revalidation_preserves_budgets_and_runs_fresh_review(cfg):
+    FakeRuntime.fail_tests=True
+    FakeRuntime.outcomes=[{'verdict':'PASS','findings':[],'summary':'built'},
+                          {'verdict':'BLOCKED','findings':[],'summary':'environment missing'}]
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        path=Path(cfg['state_dir'])/'runs'/first['id']/'plan.json'
+        FakeRuntime.fail_tests=False
+        runner.planner=lambda *a,**kw:pytest.fail('Local revalidation called remote planner')
+        result=runner.resume(first['id'],local_plan=path,revalidate=True)
+        assert result['state']=='READY_LOCAL'
+        assert result['data']['repairs']==first['data']['repairs']
+        assert result['data']['failures']==first['data']['failures']
+        assert [t['exit_code'] for t in result['data']['tests']]==[1,0]
+        assert [t['packet']['role'] for t in FakeRuntime.turns]==['build','repair','review']
+    finally:runner.close()
+
+
+def test_owner_network_grant_resumes_exact_run_and_is_receipted(cfg):
+    from devfactory.runner import config_fingerprint
+    cfg['projects']['demo']['network_access']=False
+    FakeRuntime.interrupt=True
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo')[0]
+        assert first['data']['sandbox_permissions']=={'network_access':False}
+        plan=Path(cfg['state_dir'])/'runs'/first['id']/'plan.json'
+        before=config_fingerprint(cfg,'demo')
+        cfg['projects']['demo']['network_access']=True
+        assert config_fingerprint(cfg,'demo')==before
+        FakeRuntime.interrupt=False
+        result=runner.resume(first['id'],local_plan=plan)
+        assert result['state']=='READY_LOCAL'
+        assert result['data']['sandbox_permissions']=={'network_access':True}
+        changes=result['data']['sandbox_permission_changes']
+        assert len(changes)==1
+        assert {k:v for k,v in changes[0].items() if k!='at'}=={
+            'capability':'network_access','from':False,'to':True,
+            'source':'owner project configuration'}
+        assert changes[0]['at']>0
+        assert FakeRuntime.sandbox_permissions[-1]['network_access'] is True
     finally:runner.close()
 
 

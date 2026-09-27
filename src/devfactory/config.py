@@ -32,6 +32,12 @@ def load(root: Path, local: Path | None = None):
     config["state_dir"] = str(Path(config.get("state_dir", root / ".factory")).expanduser().resolve())
     if config["integration"].get("merge") or config["integration"].get("deploy"):
         raise Stop("BLOCKED_POLICY", "Automatic merge/deploy unavailable in MVP")
+    sandbox=config.get("sandbox",{})
+    if not isinstance(sandbox.get("network_access"),bool):
+        raise Stop("BLOCKED_POLICY", "sandbox.network_access must be boolean")
+    for name, project in config.get("projects",{}).items():
+        if "network_access" in project and not isinstance(project["network_access"],bool):
+            raise Stop("BLOCKED_POLICY", f"Project {name} network_access must be boolean")
     b = config["budget"]
     if not 0 < b["allowance_reserve_percent"] < 100 or not 1 <= b["max_turns"] <= 20:
         raise Stop("BLOCKED_POLICY", "Invalid reserve or per-task turn budget")
@@ -56,6 +62,16 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "Context navigation/log limits are invalid")
     if not isinstance(ctx.get("cold_paths"),list) or not all(isinstance(x,str) and x for x in ctx["cold_paths"]):
         raise Stop("BLOCKED_POLICY", "cold_paths must be a list of path prefixes")
+    if not isinstance(ctx.get("factory_auto_compaction"), bool):
+        raise Stop("BLOCKED_POLICY", "context.factory_auto_compaction must be boolean")
+    if ctx.get("manual_compaction") is True:
+        raise Stop("BLOCKED_POLICY", "context.manual_compaction is retired; use factory_auto_compaction")
+    compact_after = ctx.get("compact_after_builder_turns", 0)
+    compact_reserve = ctx.get("compact_min_remaining_tokens", 0)
+    if type(compact_after) is not int or not 1 <= compact_after <= 20:
+        raise Stop("BLOCKED_POLICY", "compact_after_builder_turns must be an integer from 1 to 20")
+    if type(compact_reserve) is not int or not 0 <= compact_reserve <= 1000000:
+        raise Stop("BLOCKED_POLICY", "compact_min_remaining_tokens must be an integer from 0 to 1000000")
     hygiene=config.get("hygiene",{})
     integer_limits={"history_commits":(1,2000),"max_roots_per_commit":(2,50),"min_cochange_commits":(1,50),
                     "large_file_bytes":(1000,100000000),"wide_directory_entries":(10,5000),
@@ -74,6 +90,4 @@ def load(root: Path, local: Path | None = None):
             raise Stop("BLOCKED_POLICY", f"Profile {name} has invalid model ladder")
     if b.get("unknown_quota") != "pause" or not config["context"]["native_autocompaction"]:
         raise Stop("BLOCKED_POLICY", "Unknown quota must pause; native autocompaction remains enabled")
-    if config["context"].get("manual_compaction"):
-        raise Stop("BLOCKED_POLICY", "Automatic Factory compaction is not implemented; retain native autocompaction")
     return config
