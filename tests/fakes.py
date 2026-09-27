@@ -28,7 +28,8 @@ class FakeRuntime:
         return tid
     def turn(self,tid,text,selection,*,on_start,on_event,**kwargs):
         packet=json.loads(text); role=packet['role']
-        self.turns.append({'thread':tid,'packet':packet})
+        self.turns.append({'thread':tid,'packet':packet,'profile':selection.profile,
+                           'requested_model':selection.requested_model,'requested_effort':selection.requested_effort})
         turn='turn-'+str(len(self.turns)); on_start(tid,turn)
         if role!='review':
             paths=(packet.get('task') or {}).get('paths') or ['clamp.py']
