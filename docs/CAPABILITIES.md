@@ -73,7 +73,8 @@ A dedicated private GitHub fixture verified real push, draft PR, exact reviewed 
 recovery after ambiguous push/PR completion, and duplicate suppression with no extra
 model turns. CI was absent, not passed. No product release was attempted.
 
-Automatic Factory early-compaction policy was never wired into Runner; it is now
-explicitly unsupported and its inert enabling flag is rejected. Native
-autocompaction and the explicit manual adapter remain. Initial setup evidence above
-is historical; later native-default model drift is recorded per experiment.
+The policy-v3.1 benchmark recorded no Factory early-compaction policy. Policy v3.2
+adds a guarded repair-boundary compaction path with durable state and explicit usage
+and budget checks. Its token savings and compaction-specific usage remain unknown.
+Native autocompaction remains enabled. Initial setup evidence above is historical;
+later native-default model drift is recorded per experiment.

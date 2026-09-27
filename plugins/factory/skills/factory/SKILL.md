@@ -7,6 +7,8 @@ Dispatch with `python3 <skill-directory>/scripts/dispatch.py <arguments>`.
 With no arguments run `doctor`. Commands also include `prep <project>` and
 `compile <project> --max-tasks N`; both use zero model turns. Optional post-review composition uses
 `batch <run-id> <run-id> [...]` (zero model turns) followed by explicit `batch-review <batch-id>`.
+Only an explicitly requested, exact-snapshot-approved `batch-integrate <batch-id>` may push
+the reviewed batch commit and open one draft PR; it never merges or deploys.
 Product work still requires explicit `run <project> --max-tasks N`.
 
 Factory owns one foreground loop. Do not add another scheduler/agent loop. It clusters compatible backlog

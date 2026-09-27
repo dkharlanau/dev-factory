@@ -58,7 +58,8 @@ def _cochange(path, base_sha, *, history_commits=200, max_roots_per_commit=8,
               min_commits=2, min_confidence=.35):
     raw=command(['git','-C',str(path),'log','--format=__COMMIT__%H','--name-only','--no-renames',
                  '-n',str(int(history_commits)),base_sha],check=False)
-    if raw.returncode: return {}
+    if raw.returncode:
+        raise Stop('BLOCKED_INFRASTRUCTURE','Git co-change history is unavailable')
     commits=[]; current=[]
     for line in raw.stdout.splitlines():
         if line.startswith('__COMMIT__'):
@@ -95,7 +96,26 @@ def roots_related(left, right, profile):
 
 def analyze_repository(path, base_sha, *, configured_cold_paths=(), rules=None):
     rules=rules or {}
-    inventory=tree_inventory(path,base_sha)
+    try:
+        inventory=tree_inventory(path,base_sha)
+    except Stop as error:
+        if error.state!='BLOCKED_INFRASTRUCTURE':raise
+        configured=[x.rstrip('/')+'/' for x in configured_cold_paths if x]
+        profile={'version':1,'base_sha':base_sha,
+                 'inventory_status':{'state':'unavailable','reason':error.reason},
+                 'metrics':{'tracked_files':None,'tracked_bytes':None,'root_files':None,
+                            'cold_files':None,'cold_bytes':None,'largest_roots':None},
+                 'context':{'configured_cold_paths':configured,'auto_cold_paths':[],
+                            'effective_cold_paths':configured},
+                 'instructions':[], 'cochange':{},
+                 'cochange_status':{'state':'unavailable','reason':'Repository inventory unavailable'},
+                 'findings':[{'severity':'warning','code':'INVENTORY_UNAVAILABLE','path':None,
+                              'detail':error.reason,
+                              'recommendation':'Use declared task and guidance paths; global hygiene and co-change evidence remain unknown.'}],
+                 'cleanup':{'mode':'context_only','product_files_changed':False,
+                            'reason':'Inventory unavailable; preserve files and restrict navigation to declared scope.'}}
+        profile['profile_hash']=digest(profile)
+        return profile
     file_count=len(inventory)
     total_bytes=sum(x['size'] or 0 for x in inventory)
     root_counts=Counter(x['root'] for x in inventory)
@@ -142,18 +162,27 @@ def analyze_repository(path, base_sha, *, configured_cold_paths=(), rules=None):
             findings.append({'severity':'warning','code':'AGENT_INSTRUCTION_BLOAT','path':name,
                              'detail':f'{lines} lines, {len(text.encode())} bytes, {len(flags)} broad-read rules',
                              'recommendation':'Keep durable rules compact and point to specialized docs only when the task requires them.'})
-    cochange=_cochange(path,base_sha,
-        history_commits=rules.get('history_commits',200),
-        max_roots_per_commit=rules.get('max_roots_per_commit',8),
-        min_commits=rules.get('min_cochange_commits',2),
-        min_confidence=rules.get('min_cochange_confidence',.35))
+    cochange_status={'state':'available'}
+    try:
+        cochange=_cochange(path,base_sha,
+            history_commits=rules.get('history_commits',200),
+            max_roots_per_commit=rules.get('max_roots_per_commit',8),
+            min_commits=rules.get('min_cochange_commits',2),
+            min_confidence=rules.get('min_cochange_confidence',.35))
+    except Stop as error:
+        if error.state!='BLOCKED_INFRASTRUCTURE': raise
+        cochange={}
+        cochange_status={'state':'unavailable','reason':error.reason}
+        findings.append({'severity':'warning','code':'COCHANGE_UNAVAILABLE','path':None,
+                         'detail':error.reason,
+                         'recommendation':'Use shared task roots; cross-root batching requires observed history.'})
     profile={'version':1,'base_sha':base_sha,'metrics':{
                 'tracked_files':file_count,'tracked_bytes':total_bytes,'root_files':roots,
                 'cold_files':len(cold_files),'cold_bytes':sum(x['size'] or 0 for x in cold_files),
                 'largest_roots':dict(root_counts.most_common(12))},
              'context':{'configured_cold_paths':configured,'auto_cold_paths':sorted(auto),
                         'effective_cold_paths':cold},
-             'instructions':instruction_stats,'cochange':cochange,'findings':findings,
+             'instructions':instruction_stats,'cochange':cochange,'cochange_status':cochange_status,'findings':findings,
              'cleanup':{'mode':'context_only','product_files_changed':False,
                         'reason':'Automatic prep optimizes agent visibility; destructive repository cleanup stays explicit and reviewed.'}}
     profile['profile_hash']=digest(profile)
@@ -194,13 +223,20 @@ def prepare_project(config, project):
             'cleanup':profile['cleanup']}
 
 def repository_registry(path, base_sha, task_paths, *, guidance_files=(), cold_paths=(), max_files=40, profile=None):
-    inventory=tree_inventory(path,base_sha)
+    unavailable=(profile or {}).get('inventory_status',{}).get('state')=='unavailable'
+    inventory=[]
+    if not unavailable:
+        try:inventory=tree_inventory(path,base_sha)
+        except Stop as error:
+            if error.state!='BLOCKED_INFRASTRUCTURE':raise
+            unavailable=True
     extra=(profile or {}).get('context',{}).get('auto_cold_paths',[])
     cold=list(dict.fromkeys([x.rstrip('/') for x in list(cold_paths)+list(extra) if x]))
     task_paths=list(dict.fromkeys(task_paths))
     def task_allows_cold(f):
         return any(_inside(f,p) for p in task_paths if any(_inside(p,c) or _inside(c,p) for c in cold))
-    active=[x['path'] for x in inventory if not any(_inside(x['path'],c) for c in cold) or task_allows_cold(x['path'])]
+    active=(list(dict.fromkeys([*task_paths,*guidance_files])) if unavailable else
+            [x['path'] for x in inventory if not any(_inside(x['path'],c) for c in cold) or task_allows_cold(x['path'])])
     counts=Counter((PurePosixPath(f).parts or ('.',))[0] for f in active)
     parents={str(PurePosixPath(p).parent) for p in task_paths}
     relevant=set(guidance_files)
@@ -211,9 +247,13 @@ def repository_registry(path, base_sha, task_paths, *, guidance_files=(), cold_p
     ordered=sorted(relevant,key=lambda f:(0 if any(_inside(f,p) or _inside(p,f) for p in task_paths) else
                                           1 if f in guidance_files else 2, f))
     nearby=ordered[:max(1,int(max_files))]
-    payload={'base_sha':base_sha,'file_count':len(inventory),'active_file_count':len(active),
-             'cold_excluded':len(inventory)-len(active),'top_roots':dict(counts.most_common(12)),
+    payload={'base_sha':base_sha,'file_count':None if unavailable else len(inventory),
+             'active_file_count':None if unavailable else len(active),
+             'cold_excluded':None if unavailable else len(inventory)-len(active),
+             'top_roots':None if unavailable else dict(counts.most_common(12)),
+             'inventory_status':'unavailable' if unavailable else 'available',
              'profile_hash':(profile or {}).get('profile_hash')}
     payload['registry_hash']=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     return payload, {'files':nearby,'cold_excluded':payload['cold_excluded'],
+                     'inventory_status':payload['inventory_status'],
                      'profile_hash':payload['profile_hash']}

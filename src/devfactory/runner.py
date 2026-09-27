@@ -11,7 +11,7 @@ from .repository import (snapshot, git, create_worktree, changed, fingerprint, c
 from .navigation import repository_registry
 from .runtime import Runtime
 from .state import Store, digest, atomic_json, TERMINAL
-from .tasks import resolve
+from .tasks import resolve, local_resume_plan
 
 SCHEMA = {'type':'object','properties':{
     'verdict':{'type':'string','enum':['PASS','REPAIR','BLOCKED']},
@@ -37,9 +37,37 @@ def redact(text):
 
 
 def config_fingerprint(config, project):
-    # Includes relevant owner approvals, budgets, checks and routing. Task/model text cannot alter it.
+    # Includes owner approvals, budgets, checks and routing. Network access is an
+    # independently receipted sandbox capability so it can be granted to a
+    # preserved run without discarding its exact task/checkpoint.
+    project_config={k:v for k,v in config['projects'][project].items() if k!='network_access'}
     return digest({k:config[k] for k in ('budget','profiles','context','batching','hygiene','integration','policy_version')} |
-                  {'project':config['projects'][project]})
+                  {'project':project_config})
+
+
+def legacy_compaction_config_fingerprint(config, project):
+    """Accept v3.1 checkpoints when only the newly implemented compaction policy changed."""
+    legacy=copy.deepcopy(config)
+    legacy['policy_version']='3.1'
+    context=legacy['context']
+    for key in ('factory_auto_compaction','compact_after_builder_turns','compact_min_remaining_tokens'):
+        context.pop(key,None)
+    context['manual_compaction']=False
+    return config_fingerprint(legacy,project)
+
+
+def network_access(config, project):
+    return config['projects'][project].get('network_access',config.get('sandbox',{}).get('network_access',False))
+
+
+def worker_rules(plan):
+    rules=WORKER_RULES
+    approval=plan.get('authority_approval') or {}
+    if approval.get('isolated_branch'):
+        rules+='\nExplicit owner exception for this source/task snapshot: work in the assigned isolated branch despite a main-only repository rule.\n'
+    if approval.get('remote_authority'):
+        rules+='\nExplicit owner decision: the assigned remote-base snapshot is the instruction authority; preserve unrelated local checkout edits.\n'
+    return rules
 
 
 def validate_scope(worktree, base, allowed):
@@ -93,11 +121,49 @@ def validation_summary(tests):
     return list(latest.values())
 
 
+def validation_output(result, limit):
+    """Keep both streams when bounding diagnostics; warnings must not hide stdout errors."""
+    streams=[(name,redact(result.get(name,'')).strip()) for name in ('stdout','stderr')]
+    streams=[(name,text) for name,text in streams if text]
+    combined='\n'.join(text for _,text in streams)
+    limit=max(0,limit)
+    if len(combined.encode('utf-8'))<=limit:
+        return combined
+
+    def clip(text,budget):
+        raw=text.encode('utf-8')
+        if len(raw)<=budget:return text
+        marker=b'\n[... omitted ...]\n'
+        if budget<=len(marker):return raw[:budget].decode('utf-8','ignore')
+        remaining=budget-len(marker)
+        head=(remaining+1)//2;tail=remaining-head
+        return raw[:head].decode('utf-8','ignore')+marker.decode()+(
+            raw[-tail:].decode('utf-8','ignore') if tail else '')
+
+    headers=[f'[{name}]\n' for name,_ in streams]
+    overhead=sum(len(header.encode()) for header in headers)+len(streams)-1
+    if limit<=overhead:return clip(combined,limit)
+    available=limit-overhead
+    budgets=[min(len(text.encode('utf-8')),available//len(streams)) for _,text in streams]
+    spare=available-sum(budgets)
+    for i,(_,text) in enumerate(streams):
+        extra=min(spare,len(text.encode('utf-8'))-budgets[i])
+        budgets[i]+=extra;spare-=extra
+    return '\n'.join(header+clip(text,budget) for header,(_,text),budget in zip(headers,streams,budgets))
+
+
 def failure_excerpt(result, limit=1600):
     if result.get('exitCode') == 0:
         return None
-    text = redact((result.get('stdout','')+'\n'+result.get('stderr','')).strip())
-    return text[-limit:] if text else None
+    return validation_output(result,limit) or None
+
+
+def validation_infrastructure_failure(result):
+    if result.get('exitCode')==0:return None
+    output=result.get('stdout','')+'\n'+result.get('stderr','')
+    if re.search(r'listen\s+(?:EPERM|EACCES):[^\n]*(?:127\.0\.0\.1|::1|localhost)',output):
+        return 'Native sandbox denied a loopback test listener; preserve work and reconcile the required local-server capability'
+    return None
 
 
 def packet_for_phase(plan, d, phase, adapter, wt):
@@ -115,10 +181,46 @@ def packet_for_phase(plan, d, phase, adapter, wt):
     if phase!='repair': return full_text,'full',0
     delta={'role':'repair','changed_files':changed(wt,d['base_sha']),
            'validation':validation_summary(d['tests']),'concrete_findings':d.get('findings',[])}
+    compacted=any(item.get('thread_id')==d.get('builder_thread') and
+                  item.get('state') not in (None,'dispatching') for item in d.get('compactions',[]))
+    if compacted:
+        # Re-anchor acceptance after the SDK summarizes the long-lived builder thread.
+        if len(packets)==1: delta['task']=packets[0]
+        else: delta['tasks']=packets
+        delta['project_boundary']=adapter.get('boundary')
+        delta['guidance_files']=[x['path'] for x in plan['authority'] if x['path'] in instruction_names]
     if len(packets)==1: delta['task_id']=packets[0]['id']
     else: delta['task_ids']=[p['id'] for p in packets]
     delta_text=json.dumps(delta,separators=(',',':'),ensure_ascii=False)
-    return delta_text,'delta',max(0,len(full_text.encode())-len(delta_text.encode()))
+    mode='delta+contract' if compacted else 'delta'
+    return delta_text,mode,max(0,len(full_text.encode())-len(delta_text.encode()))
+
+
+def compaction_due(data, context, usage):
+    """Compact only a continuing repair thread with known usage and reserved completion budget."""
+    if not context.get('factory_auto_compaction') or not data.get('builder_thread'):
+        return False, 'disabled-or-no-builder'
+    turns=data.get('turns',[])
+    builder=data['builder_thread']
+    last=max((i for i,item in enumerate(turns)
+              if item.get('role')=='compaction' and item.get('thread_id')==builder),default=-1)
+    count=sum(item.get('role') in ('build','repair') and item.get('thread_id')==builder
+              for item in turns[last+1:])
+    if count < context['compact_after_builder_turns']:
+        return False, 'below-builder-turn-threshold'
+    # Do not infer context occupancy from cumulative usage. Unknown usage disables
+    # early compaction; the SDK's native autocompaction remains enabled.
+    observed=usage.aggregate().get('totalTokens')
+    if observed is None:
+        return False, 'token-usage-unknown'
+    remaining=max(0,int(data.get('remaining_tokens',0))-observed)
+    if remaining < context['compact_min_remaining_tokens']:
+        return False, 'completion-token-reserve'
+    # Compaction itself is a model turn. Keep room for it, the repair, and fresh review.
+    turns_left=int(data.get('remaining_turns',0))-len(turns)
+    if turns_left < 3:
+        return False, 'completion-turn-reserve'
+    return True, 'repair-checkpoint'
 
 
 def plan_member_keys(plan):
@@ -209,8 +311,13 @@ class Runner:
                   'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
                   'base_branch':plan['base_branch'],'repository':plan['repository'],
                   'config_hash':config_fingerprint(self.config,project),'profile':plan['profile'],
+                  'policy_version':self.config.get('policy_version'),
+                  'compaction_policy':{key:self.config['context'][key] for key in
+                                       ('factory_auto_compaction','compact_after_builder_turns','compact_min_remaining_tokens')},
+                  'sandbox_permissions':{'network_access':network_access(self.config,project)},
                   'repo_profile_hash':plan.get('repo_profile_hash'),
-                  'baseline':baseline,'phase':'build','turns':[],'tests':[],'repairs':0,'failures':0,
+                  'authority_approval':plan.get('authority_approval',{}),
+                  'baseline':baseline,'phase':'build','turns':[],'tests':[],'compactions':[],'repairs':0,'failures':0,
                   'escalations':0,'routing_upgrades':0,'usage_threads':{},'started_at':time.time(),
                   'active_execution_seconds':0,'active_execution_complete':False,
                   'deadline':queue_started+self.config['budget']['deadline_seconds'],
@@ -219,6 +326,7 @@ class Runner:
                   'compaction_usage':None,'active_context_occupation':None,
                   'allowance_attribution':'Shared account; changes are not attributable to Factory alone'}
             rid=self.store.create(project,plan['task_key'],data,aliases=[(k,i) for k,i in zip(keys,ids)])
+            atomic_json(self.store.path/'runs'/rid/'plan.json',plan)
             try:
                 self.store.claim(rid)
                 result=self._execute(rid,plan); outcomes.append(result)
@@ -235,16 +343,48 @@ class Runner:
                 self.store.release(rid)
         return outcomes
 
-    def resume(self, rid):
+    def resume(self, rid, *, revalidate=False, local_plan=None):
         run = self.store.get(rid)
+        if revalidate and (run['state']!='NATIVE_HANDOFF' or run['data'].get('phase')!='repair'
+                           or run['data'].get('in_flight') or not run['data'].get('tests')
+                           or not any(t.get('exit_code')!=0 for t in run['data']['tests'])):
+            raise Stop('BLOCKED_RECONCILIATION','Revalidation requires an idle validation handoff')
         if run['state'] in TERMINAL:
             return {'state':'EXISTING_COMPLETION','run_id':rid}
         self.store.claim(rid,recovering=True)
         try:
             d=run['data']; project=run['project']
-            if d['config_hash'] != config_fingerprint(self.config,project):
-                raise Stop('BLOCKED_RECONCILIATION','Owner configuration changed; review checkpoint before resuming')
-            plan=self.planner(self.config,project,mutate=True,batch_limit=max(1,len(d.get('task_ids') or [d['task_id']])))
+            current_config_hash=config_fingerprint(self.config,project)
+            if d['config_hash'] != current_config_hash:
+                if d['config_hash'] != legacy_compaction_config_fingerprint(self.config,project):
+                    raise Stop('BLOCKED_RECONCILIATION','Owner configuration changed; review checkpoint before resuming')
+                prior_policy=d.get('compaction_policy',{
+                    'factory_auto_compaction':False,'compact_after_builder_turns':None,
+                    'compact_min_remaining_tokens':None})
+                current_policy={key:self.config['context'][key] for key in
+                                ('factory_auto_compaction','compact_after_builder_turns','compact_min_remaining_tokens')}
+                d.setdefault('config_policy_migrations',[]).append({
+                    'from':'3.1','to':self.config.get('policy_version'),
+                    'reason':'Factory-controlled repair compaction added with durable checkpoints and completion reserves',
+                    'previous_compaction_policy':prior_policy,'current_compaction_policy':current_policy,
+                    'at':time.time()})
+                d['config_hash']=current_config_hash
+                d['policy_version']=self.config.get('policy_version')
+                d['compaction_policy']=current_policy
+                self.store.save(rid,'RECONCILING',d)
+            network=network_access(self.config,project)
+            permissions=d.setdefault('sandbox_permissions',{'network_access':False})
+            previous=permissions.get('network_access',False)
+            if previous != network:
+                d.setdefault('sandbox_permission_changes',[]).append({
+                    'capability':'network_access','from':previous,'to':network,
+                    'at':time.time(),'source':'owner project configuration'})
+                permissions['network_access']=network
+                self.store.save(rid,'RECONCILING',d)
+            if local_plan is not None:
+                plan=local_resume_plan(self.config,run,local_plan)
+            else:
+                plan=self.planner(self.config,project,mutate=True,batch_limit=max(1,len(d.get('task_ids') or [d['task_id']])))
             if plan['state']!='EXECUTE' or plan.get('contract_hash')!=d['contract_hash'] or plan.get('base_sha')!=d['base_sha']:
                 raise Stop('BLOCKED_RECONCILIATION','Task authority or base changed since checkpoint')
             wt=Path(d.get('worktree',''))
@@ -255,10 +395,19 @@ class Runner:
                 now=snapshot(wt,self.config['projects'][project].get('repository'))
                 if now['branch']!=d['branch'] or now['operations']:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree branch/operation changed')
+                if d.get('checkpoint_snapshot_error') and not d.get('checkpoint_fingerprint'):
+                    raise Stop('BLOCKED_RECONCILIATION','Checkpoint snapshot unavailable; native source reconciliation required')
                 if d.get('checkpoint_fingerprint') and fingerprint(wt,d['base_sha'])!=d['checkpoint_fingerprint']:
                     raise Stop('BLOCKED_RECONCILIATION','Worktree changed outside Factory after checkpoint')
                 if d.get('reviewed_fingerprint') and fingerprint(wt,d['base_sha'])!=d['reviewed_fingerprint']:
                     d['phase']='validate'; d['review']=None
+            if revalidate:
+                d['phase']='validate';d['review']=None;d['acceptance']=None
+                d['operator_revalidations']=d.get('operator_revalidations',0)+1
+            d['authority_mode']='local_snapshot' if local_plan is not None else 'remote_refreshed'
+            d['remote_freshness']='not_refreshed' if local_plan is not None else 'refreshed'
+            d['plan_snapshot_hash']=digest(plan)
+            atomic_json(self.store.path/'runs'/rid/'plan.json',plan)
             # No new token/turn budget is granted on resume. Deadline is an explicit
             # new foreground execution window, while cumulative counters are retained.
             d['deadline']=time.time()+self.config['budget']['deadline_seconds']
@@ -301,14 +450,25 @@ class Runner:
             d['reason']=reason
             d['active_execution_complete']=state in TERMINAL
             if wt.exists():
-                d['checkpoint_fingerprint']=fingerprint(wt,d['base_sha'])
-                d['head_sha']=git(wt,'rev-parse','HEAD')
-                d['changed_files']=changed(wt,d['base_sha'])
+                try:
+                    current={'checkpoint_fingerprint':fingerprint(wt,d['base_sha']),
+                             'head_sha':git(wt,'rev-parse','HEAD'),
+                             'changed_files':changed(wt,d['base_sha'])}
+                except Stop as error:
+                    # Persist the failure even when the failing Git operation also
+                    # prevents a fresh snapshot. Never manufacture a new fingerprint.
+                    d['checkpoint_snapshot_error']={'state':error.state,'reason':error.reason}
+                    d['reason']+='; checkpoint snapshot unavailable: '+error.reason
+                    if state in TERMINAL:
+                        state='BLOCKED_RECONCILIATION';d['acceptance']=None
+                    d['active_execution_complete']=False
+                else:
+                    d.update(current);d.pop('checkpoint_snapshot_error',None)
             d['next_step']=d['phase']
             # Operational facts only. No prompts, conversations or hidden reasoning.
             atomic_json(logdir/'checkpoint.json',{k:d.get(k) for k in (
                 'task_id','task_ids','contract_hash','task_source','base_sha','head_sha','changed_files',
-                'tests','reason','next_step','in_flight','worktree','builder_thread')})
+                'tests','reason','next_step','in_flight','worktree','builder_thread','checkpoint_snapshot_error')})
             save(state)
         try:
             create_worktree(plan['repository']['path'],wt,d['branch'],d['base_sha'])
@@ -323,13 +483,33 @@ class Runner:
                     profile=repo_profile)
             save('CLAIMED')
             with self.runtime_factory(wt) as rt:
+                configure_sandbox=getattr(rt,'configure_sandbox',None)
+                if configure_sandbox:
+                    configure_sandbox(network_access=network_access(self.config,project))
                 d['runtime_versions']=rt.inventory().get('versions') if adapter.get('fixture') else None
                 attached_builder=None
+                for name in dict.fromkeys(adapter.get('setup_checks',[])):
+                    if name in d.get('setup_completed',[]): continue
+                    if paused(): raise Stop('PAUSED','Owner requested pause')
+                    if time.time()>=d['deadline']: raise Stop('PAUSED_DEADLINE','Foreground deadline reached')
+                    before=fingerprint(wt,d['base_sha'])
+                    argv=adapter['checks'][name]
+                    result=rt.command(wt,argv,timeout=min(600,max(1,d['deadline']-time.time())),should_pause=paused)
+                    entry={'check':name,'stage':'setup','argv':argv,'exit_code':result.get('exitCode'),
+                           'failure_excerpt':failure_excerpt(result)}
+                    d.setdefault('setup',[]).append(entry)
+                    save('SETUP')
+                    if fingerprint(wt,d['base_sha'])!=before:
+                        raise Stop('BLOCKED_SETUP','Setup changed source files; work preserved')
+                    if result.get('exitCode')!=0:
+                        raise Stop('BLOCKED_SETUP','Owner setup check failed: '+name+'; no implementation turn dispatched')
+                    d.setdefault('setup_completed',[]).append(name)
+                    save('SETUP')
                 if recovering and d.get('in_flight'):
                     flight=d['in_flight']
                     sel=choose_model(d['profile'],self.config,rt.catalog,rt.native,baseline=d['baseline'])
-                    resumed=rt.start(wt,sel,WORKER_RULES,resume=flight['thread_id'])
-                    if flight.get('role')=='build': attached_builder=resumed
+                    resumed=rt.start(wt,sel,worker_rules(plan),resume=flight['thread_id'])
+                    if flight.get('role') in ('build','compaction'): attached_builder=resumed
                     state=rt.rpc('thread/read',{'threadId':flight['thread_id'],'includeTurns':True})['thread']
                     matching=[t for t in state.get('turns',[]) if t['id']==flight.get('turn_id')]
                     if flight.get('turn_id') is None and state.get('turns'):
@@ -337,7 +517,27 @@ class Runner:
                     if state.get('status',{}).get('type')=='active' or any(t['status']=='inProgress' for t in state.get('turns',[])):
                         raise Stop('NATIVE_HANDOFF','Native turn still active; reconcile/interruption required before another dispatch')
                     # A completed build survives a controller crash: validate its actual files.
-                    if matching and matching[-1]['status']=='completed' and flight.get('role')=='build':
+                    if flight.get('role')=='compaction':
+                        previous=set(flight.get('previous_turn_ids') or [])
+                        compact_turns=[t for t in state.get('turns',[]) if t.get('id') not in previous]
+                        if state.get('status',{}).get('type')=='active' or any(t['status']=='inProgress' for t in compact_turns):
+                            raise Stop('NATIVE_HANDOFF','Compaction is still active; wait for terminal thread state before repair')
+                        if len(compact_turns)!=1 or compact_turns[0].get('status') not in ('completed','failed','interrupted'):
+                            raise Stop('NATIVE_HANDOFF','Compaction outcome is ambiguous after interruption; inspect the persisted thread state')
+                        item=compact_turns[0]
+                        has_compaction=any(i.get('type')=='contextCompaction' for i in item.get('items',[]))
+                        state_name=('COMPLETED' if has_compaction else 'NO_OP') if item['status']=='completed' else item['status'].upper()
+                        receipt=d.setdefault('compactions',[])[-1]
+                        receipt.update(state=state_name,turn_id=item['id'],items=[i['id'] for i in item.get('items',[]) if i.get('type')=='contextCompaction'],
+                                       evidence='thread/read persisted turn state',usage='unknown')
+                        compaction_turn=next((t for t in reversed(d['turns']) if t.get('role')=='compaction' and t.get('thread_id')==flight['thread_id'] and t.get('status')=='dispatching'),None)
+                        if compaction_turn:
+                            compaction_turn.update(turn_id=item['id'],status=state_name,usage=None,compactions=receipt['items'])
+                        d['in_flight']=None
+                        save('RECONCILING_COMPACTION')
+                        if state_name not in ('COMPLETED','NO_OP'):
+                            raise Stop('NATIVE_HANDOFF','Compaction did not complete; preserved checkpoint and source for owner reconciliation')
+                    elif matching and matching[-1]['status']=='completed' and flight.get('role')=='build':
                         d['phase']='validate'
                     elif flight.get('role')=='review':
                         # Never infer successful review from a missing persisted verdict.
@@ -349,6 +549,62 @@ class Runner:
                     if time.time()>=d['deadline']: raise Stop('PAUSED_DEADLINE','Foreground deadline reached')
                     phase=d['phase']; save(phase.upper()); self.emit(f'{rid} {phase.upper()}')
                     if phase in ('build','repair','review'):
+                        if phase=='repair':
+                            due,trigger=compaction_due(d,self.config['context'],usage)
+                            if due:
+                                builder=d['builder_thread']
+                                files=validate_scope(wt,d['base_sha'],plan['task']['paths'])
+                                source_fingerprint=fingerprint(wt,d['base_sha'])
+                                checkpoint_data={
+                                    'schema':'devfactory-repair-checkpoint-v1',
+                                    'task_id':d['task_id'],'task_ids':d.get('task_ids',[]),
+                                    'contract_hash':d['contract_hash'],'member_contract_hashes':d.get('member_contract_hashes',[]),
+                                    'base_sha':d['base_sha'],'source_fingerprint':source_fingerprint,
+                                    'changed_files':files,'next_action':'repair',
+                                    'task_contracts':d.get('task_contracts',[]),
+                                    'validation':validation_summary(d['tests']),
+                                    'findings':d.get('findings',[]),
+                                    'remaining_turns':max(0,d['remaining_turns']-len(d['turns'])),
+                                    'observable_tokens':usage.aggregate().get('totalTokens'),
+                                    'remaining_token_envelope':d['remaining_tokens'],
+                                    'sandbox_permissions':d.get('sandbox_permissions',{}),
+                                }
+                                checkpoint_hash=digest(checkpoint_data)
+                                checkpoint_path=logdir/f'compaction-checkpoint-{len(d.get("compactions",[]))+1}.json'
+                                atomic_json(checkpoint_path,checkpoint_data)
+                                receipt={'thread_id':builder,'state':'dispatching','trigger':trigger,
+                                         'checkpoint':str(checkpoint_path),'checkpoint_sha256':checkpoint_hash,
+                                         'source_fingerprint':source_fingerprint,'usage':'unknown'}
+                                d.setdefault('compactions',[]).append(receipt)
+                                compaction_turn={'role':'compaction','thread_id':builder,'status':'dispatching',
+                                                 'usage':None,'usage_telemetry':'unknown','checkpoint_sha256':checkpoint_hash}
+                                d['turns'].append(compaction_turn)
+                                d['in_flight']={'thread_id':builder,'turn_id':None,'role':'compaction'}
+                                save('COMPACTING')
+                                def compaction_started(boundary):
+                                    d['in_flight'].update(boundary)
+                                    receipt['previous_turn_ids']=boundary['previous_turn_ids']
+                                    save('COMPACTING')
+                                compact_started=time.monotonic()
+                                try:
+                                    compact_result=rt.compact(builder,deadline=d['deadline'],checkpoint=checkpoint_data,
+                                                              on_start=compaction_started)
+                                except Stop as error:
+                                    receipt.update(state='AMBIGUOUS',reason=redact(error.reason)[:1200])
+                                    compaction_turn.update(status='AMBIGUOUS',elapsed_seconds=time.monotonic()-compact_started)
+                                    save('COMPACTION_HANDOFF')
+                                    raise Stop('NATIVE_HANDOFF','Compaction did not return a reconciled result: '+error.reason)
+                                compact_state=compact_result.get('state')
+                                receipt.update(state=compact_state,turn_id=compact_result.get('turn_id'),
+                                               items=compact_result.get('items',[]),
+                                               evidence=compact_result.get('evidence'),usage='unknown')
+                                compaction_turn.update(status=compact_state,turn_id=compact_result.get('turn_id'),
+                                                       compactions=compact_result.get('items',[]),
+                                                       elapsed_seconds=time.monotonic()-compact_started)
+                                if compact_state!='TIMEOUT': d['in_flight']=None
+                                save('COMPACTION')
+                                if compact_state not in ('COMPLETED','NO_OP'):
+                                    raise Stop('NATIVE_HANDOFF','Compaction failed or timed out; preserved checkpoint and source for owner reconciliation')
                         budget=dict(self.config['budget'],max_turns=d['remaining_turns'],soft_tokens=d['remaining_tokens'])
                         observed_tokens=usage.aggregate()['totalTokens']
                         token_gate=observed_tokens
@@ -365,7 +621,7 @@ class Runner:
                             route_profile='review' if review else d['profile']
                         selection=choose_model(route_profile,self.config,rt.catalog,rt.native,
                                                baseline=d['baseline'],high_risk=d['risk']=='high')
-                        instructions=WORKER_RULES+(
+                        instructions=worker_rules(plan)+(
                             '\nRole: review the diff/source against acceptance using supplied validation evidence. '
                             'Do not edit. Re-run a passing check only for a specific unresolved concern; otherwise '
                             'do not duplicate controller validation.\n'
@@ -471,14 +727,14 @@ class Runner:
                                 excerpt=failure_excerpt(result)
                                 log=None
                                 if result.get('exitCode')!=0:
-                                    text=redact((result.get('stdout','')+'\n'+result.get('stderr','')).strip())
                                     cap=int(self.config['context'].get('failure_log_bytes',12000))
                                     log=logdir/f'failed-test-{len(d["tests"])+1}.log'
-                                    log.write_text(text[-cap:]); log.chmod(0o600)
+                                    log.write_text(validation_output(result,cap)); log.chmod(0o600)
                                 receipt={'check':name,'stage':stage,'argv':argv,'exit_code':result.get('exitCode'),
                                          'log':str(log) if log else None,
                                          'fingerprint':fingerprint(wt,d['base_sha']),'elapsed_seconds':test_seconds,
-                                         'failure_excerpt':excerpt}
+                                         'failure_excerpt':excerpt,
+                                         'infrastructure_reason':validation_infrastructure_failure(result)}
                                 d['tests'].append(receipt); stage_receipts.append(receipt); save('VALIDATE')
                                 if fingerprint(wt,d['base_sha']) != before_test:
                                     raise Stop('BLOCKED_VALIDATION','Validation changed source files; review/revalidation required')
@@ -488,6 +744,8 @@ class Runner:
                                 break
                         if failed:
                             d['findings']=[{'file':'','line':0,'summary':'Configured validation failed: '+', '.join(failed)}]
+                            infrastructure=next((t['infrastructure_reason'] for t in failed_receipts if t.get('infrastructure_reason')),None)
+                            if infrastructure:raise Stop('BLOCKED_INFRASTRUCTURE',infrastructure)
                             if any(t['exit_code'] in (126,127) for t in failed_receipts):
                                 raise Stop('BLOCKED_INFRASTRUCTURE','Validation executable unavailable')
                             self._repair(d)

@@ -31,9 +31,14 @@ def parser():
         if name=='compile': cmd.add_argument('--max-tasks',type=int,default=50)
     sub.add_parser('status'); sub.add_parser('report')
     for name in ('pause','resume'):
-        sub.add_parser(name).add_argument('run_id')
+        cmd=sub.add_parser(name)
+        cmd.add_argument('run_id')
+        if name=='resume':
+            cmd.add_argument('--revalidate',action='store_true',help='Refresh failed validation before repairing a preserved handoff')
+            cmd.add_argument('--local-plan',type=Path,help='Resume the exact saved contract/base without GitHub refresh; local-only execution')
     batch=sub.add_parser('batch'); batch.add_argument('run_ids',nargs='+')
     sub.add_parser('batch-review').add_argument('batch_id')
+    sub.add_parser('batch-integrate').add_argument('batch_id')
     bench=sub.add_parser('benchmark'); bench.add_argument('--live',action='store_true')
     sub.add_parser('schema')
     return p
@@ -48,8 +53,8 @@ def main(argv=None):
         if args.command=='schema':
             result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
                     'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
-                    'batch <run-id> <run-id> [...]','batch-review <batch-id>',
-                    'status','pause <run-id>','resume <run-id>','report','benchmark [--live]'],
+                    'batch <run-id> <run-id> [...]','batch-review <batch-id>','batch-integrate <batch-id>',
+                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report','benchmark [--live]'],
                     'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -85,14 +90,35 @@ def main(argv=None):
             from .runner import Runner
             # Reconstruct fixture adapter from stable fixture identity, not a saved prompt.
             store=Store(config['state_dir'])
-            try: project=store.get(args.run_id)['project']
+            try:
+                saved=store.get(args.run_id)
+                project=saved['project']
             finally: store.close()
             if project in ('demo','smoke'):
                 from .fixture import prepare
                 config=prepare(config,project)
-            runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
-            try: result=runner.resume(args.run_id)
-            finally: runner.close()
+            if saved['data'].get('operation')=='batch-review':
+                if args.local_plan:raise Stop('BLOCKED_RECONCILIATION','Local plans apply only to ordinary preserved runs')
+                if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
+                from .batch import load_composition,review_composed_batch
+                result=review_composed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
+            elif saved['data'].get('operation')=='batch-integrate':
+                if args.local_plan or args.revalidate:
+                    raise Stop('BLOCKED_RECONCILIATION','Batch remote reconciliation does not accept local plans or revalidation')
+                from .batch import integrate_reviewed_batch,load_composition
+                result=integrate_reviewed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
+            elif saved['data'].get('operation')=='batch':
+                if args.local_plan:raise Stop('BLOCKED_RECONCILIATION','Local plans apply only to ordinary preserved runs')
+                if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
+                from .batch import compose_reviewed_slices
+                store=Store(config['state_dir'])
+                try: runs=[store.get(rid) for rid in saved['data']['run_ids']]
+                finally: store.close()
+                result=compose_reviewed_slices(runs,config['state_dir'])
+            else:
+                runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
+                try: result=runner.resume(args.run_id,revalidate=args.revalidate,local_plan=args.local_plan)
+                finally: runner.close()
         elif args.command=='batch':
             if len(args.run_ids)<2:
                 raise Stop('BLOCKED_BATCH','batch requires at least two run ids')
@@ -109,6 +135,9 @@ def main(argv=None):
                 from .fixture import prepare
                 config=prepare(config,project)
             result=review_composed_batch(config,composition)
+        elif args.command=='batch-integrate':
+            from .batch import integrate_reviewed_batch,load_composition
+            result=integrate_reviewed_batch(config,load_composition(config['state_dir'],args.batch_id))
         elif args.command=='benchmark':
             from .benchmark import benchmark
             result=benchmark(config,live=args.live)
@@ -123,9 +152,9 @@ def main(argv=None):
                              'worktree':r['data'].get('worktree'),'phase':r['data'].get('phase')} for r in store.all()]
             finally: store.close()
         print(json.dumps(result,indent=2,default=str))
-        if args.command in ('run','resume','batch-review') or (args.command=='doctor' and args.live):
+        if args.command in ('run','resume','batch-review','batch-integrate') or (args.command=='doctor' and args.live):
             values=result.get('live',[]) if args.command=='doctor' else (result if isinstance(result,list) else [result])
-            if any(x.get('state') not in ('READY_LOCAL','BATCH_READY_LOCAL','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
+            if any(x.get('state') not in ('READY_LOCAL','COMPOSED_LOCAL','BATCH_READY_LOCAL','BATCH_PR_OPENED','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
                 return 2
         return 0
     except Stop as e:

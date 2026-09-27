@@ -8,7 +8,7 @@ Git, builds, tests and the supervisor run on your Mac.
 **Evaluated control layer, with a new cost-aware routing policy that still requires
 live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
 the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
-Version 3.1 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
+Version 3.2 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
 micro-batching, task-local repository navigation, failure-only logs, delta repair
 packets and staged validation, and lets a started batch finish its bounded quality gate.
 See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
@@ -61,6 +61,26 @@ an operational checkpoint/worktree. Do not create another Goal or scheduler to
 control that run. There is no promise of continuation after closing Codex, sleep,
 or terminating the process. Resume checks current state before another turn.
 Exit 2 indicates a blocked/paused/handoff execution; receipts give the actual cause.
+
+For an idle validation handoff with incomplete or stale diagnostic evidence,
+`./factory resume <run-id> --revalidate` reruns the configured sandbox checks before
+repair. It retains the existing authority, source fingerprint, turn and repair
+budgets; external source edits still require separate reconciliation. Failed-check
+logs and repair excerpts preserve bounded portions of both stdout and stderr so
+warning-heavy stderr cannot displace compiler errors printed to stdout.
+An explicit sandbox denial of a loopback test listener stops as infrastructure
+blocked without spending a source-repair turn. It does not enable networking or
+retry the command outside the sandbox.
+
+To continue local work without another GitHub request, use
+`./factory resume <run-id> --local-plan .factory/runs/<run-id>/plan.json`.
+Each new run saves this plan; an older run can use its previously exported plan.
+The explicit option accepts only the existing contract and base, verifies instruction
+hashes against the local base and checks the current owner configuration and source
+fingerprint. It retains validation, independent review and all execution budgets.
+It also works with `--revalidate`. Push/PR integration must be disabled. Receipts mark
+remote freshness as `not_refreshed`; local completion does not prove current GitHub
+main, PR or dependency state. Ordinary resume still refreshes remote authority.
 
 ## Codex skill and plugin
 
@@ -165,9 +185,16 @@ are reported as unknown. Receipts include per-turn/check durations, active execu
 seconds excluding pauses, packet/instruction byte counts, estimated repeated packet
 bytes avoided, cached-input ratio when observable, and soft-budget overshoot. Byte
 counts are not tokens and cached input is not zero-cost. Missing intervening usage
-keeps per-role attribution unknown. Automatic Factory early compaction is unsupported:
-`context.manual_compaction=true` is rejected. The explicit manual adapter is available
-for controlled diagnostics; native autocompaction remains the execution policy.
+keeps per-role attribution unknown.
+
+Factory may compact a continuing builder thread before a repair after two completed
+builder turns. It first saves a mode-0600 checkpoint with the task contract, base and
+source fingerprints, changed paths, check outcomes, findings and remaining budgets.
+It skips explicit compaction when token usage is unknown or configured token/turn
+reserves for repair and fresh review are not available. Native SDK autocompaction stays
+enabled. Each repair re-receives the bounded task contract after compaction, and an
+ambiguous result stops for reconciliation. Compaction usage is not separately exposed,
+so this is a context-continuity safeguard, not a demonstrated token saving.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction
@@ -262,13 +289,40 @@ without another implementation turn.
 ```sh
 ./factory batch <run-id> <run-id> [...]
 ./factory batch-review <batch-id>
+./factory batch-integrate <batch-id>  # optional, explicit remote draft PR
 ```
 
 `batch` is deterministic and uses zero model turns. It rechecks each reviewed fingerprint, applies the exact
-tracked/untracked deltas into a fresh Factory worktree, verifies the resulting file set, and writes an idempotent
+tracked/untracked deltas into a fresh Factory worktree, commits that exact tree, verifies the resulting file set, and writes an idempotent
 composition receipt. `batch-review` then runs the configured broad final checks once and spends exactly one fresh
 integration-review turn across all child acceptance criteria. It never auto-repairs a failed composition; a defect
 blocks the batch instead of mutating already-reviewed slices.
 
+`batch-integrate` is a separate remote-write command. It requires a `BATCH_READY_LOCAL` receipt,
+`integration.push = true`, `integration.pull_request = true`, the project's `allow_gh = true`,
+and an exact owner approval at `projects.<project>.batch_integration_approvals.<batch-id>`.
+Copy `batch_fingerprint`, `base_sha`, `trigger_hash`, and `authority_hash` from the
+`integration_candidate` in the ignored `batches/<batch-id>/integration.json` receipt;
+set `triggers_reviewed`, `spend_reviewed`, and `owner_restrictions_reviewed` only after
+checking the actual remote/hosting effects. The command rejects a changed base, head, scope,
+approval, or review, then pushes the reviewed commit and reconciles exactly one draft PR.
+Ambiguous push/PR responses are checked against the remote before a retry. No merge or deploy occurs.
+
 This layer is intentionally optional: do not split work merely to use it. The ordinary v3.1 repo-aware micro-batch
 path is cheaper when tasks can be safely implemented together from the start.
+
+Composition, integration review, and explicit remote integration share the ordinary runner's global worker lock and
+lease. Their run IDs appear in `status`/`report`; `pause <run-id>` requests a review
+pause and `resume <run-id>` reconciles the saved batch operation. A live lease is never
+stolen. Review dispatch, native thread/turn identity and observed usage are persisted
+before/during the turn. A lost result is recovered from the same native turn when its
+completed verdict is available. Missing acknowledgements, active/interrupted turns or
+unavailable verdicts block without a second review; inspect the preserved checkpoint.
+Recovered usage is explicitly incomplete when final telemetry was not observed.
+
+Planning checks task authority before computing a repository profile. Unavailable or
+timed-out co-change history is recorded as unknown; batching then requires shared task
+roots and cannot infer cross-root relationships from missing history.
+If the optional full-tree hygiene scan is unavailable, its counts and byte totals
+stay unknown and navigation includes only declared task/guidance paths. Authority,
+scope, source fingerprints, required checks and independent review still run.

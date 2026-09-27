@@ -18,8 +18,8 @@ def command(argv, cwd=None, timeout=30, check=True):
     return r
 
 
-def git(path,*args,check=True):
-    return command(['git','-c','core.hooksPath=/dev/null','-C',str(path),*args],check=check).stdout.strip()
+def git(path,*args,check=True,timeout=30):
+    return command(['git','-c','core.hooksPath=/dev/null','-C',str(path),*args],check=check,timeout=timeout).stdout.strip()
 
 
 def repository_id(remote):
@@ -146,7 +146,7 @@ class GitHub:
 
     def find_pr(self, branch):
         rows = self.json('pr','list','--repo',self.repository,'--head',branch,'--state','all',
-                         '--json','number,url,state,headRefOid,isDraft')
+                         '--json','number,url,state,headRefOid,baseRefName,isDraft')
         if len(rows) > 1:
             raise Stop('BLOCKED_RECONCILIATION','Multiple PRs match Factory branch')
         return rows[0] if rows else None

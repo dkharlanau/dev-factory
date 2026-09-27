@@ -1,6 +1,7 @@
 """Resolve current task contracts from existing authority; batch only compatible work."""
 from __future__ import annotations
 import json
+import hashlib
 import re
 from pathlib import Path
 from .policy import Stop, screen_task, classify
@@ -11,6 +12,30 @@ from .navigation import ensure_profile, roots_related
 CONTRACT_KEYS = {'id','description','acceptance','paths','category','risk','complexity','verification',
                  'checks','dependencies','required_capabilities','priority','state','higher_risk_approved'}
 LOCAL_CAPABILITIES = {'shell','git','python','node','rust'}
+
+
+def worktree_authority(worktree, names):
+    """Read the pinned authority files already materialized in a preserved worktree."""
+    root=Path(worktree).resolve()
+    result=[]
+    for name in dict.fromkeys(names):
+        relative=Path(name)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise Stop('BLOCKED_RECONCILIATION','Configured authority path escapes the preserved worktree')
+        candidate=root/relative
+        if candidate.is_symlink():
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority file is a symlink in the preserved worktree')
+        if not candidate.exists():
+            continue
+        resolved=candidate.resolve(strict=True)
+        if not resolved.is_relative_to(root) or not resolved.is_file():
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority path is not a regular worktree file')
+        try:
+            text=resolved.read_bytes().decode('utf-8').replace('\r\n','\n').replace('\r','\n')
+        except (OSError,UnicodeDecodeError) as e:
+            raise Stop('BLOCKED_RECONCILIATION','Pinned authority file cannot be read as UTF-8') from e
+        result.append({'path':name,'sha256':hashlib.sha256(text.encode()).hexdigest(),'text':text})
+    return result
 
 def parse_contract(text):
     blocks = re.findall(r'```factory-task\s*\n(.*?)\n```',text,re.S)
@@ -64,7 +89,8 @@ def _load_snapshot(config, project, adapter, mutate):
             base=remote.split()[0]
             has=command(['git','-C',repo['path'],'cat-file','-e',base+'^{commit}'],check=False).returncode == 0
             if not has and mutate:
-                git(repo['path'],'fetch','--no-tags','origin',branch); has=True
+                git(repo['path'],'fetch','--no-tags','origin',branch,timeout=120)
+                has=command(['git','-C',repo['path'],'cat-file','-e',base+'^{commit}'],check=False).returncode == 0
             if not has:
                 return repo,None,None,None,None,None,{'state':'NATIVE_HANDOFF','project':project,'repository':repo,
                     'base_sha':base,'reason':'Remote base object absent locally; run may fetch before isolated work',
@@ -76,6 +102,103 @@ def _load_snapshot(config, project, adapter, mutate):
                             'authority':authority,'github':github}
     return repo,github,meta,prs,issues,base,authority
 
+def dirty_authority_paths(repo, base, authority):
+    """A clean ancestor checkout is stale, not an uncommitted policy override."""
+    mismatches=[]
+    for doc in authority:
+        path=Path(repo['path'])/doc['path']
+        current=path.read_text() if path.is_file() else None
+        if current!=doc['text']: mismatches.append((doc['path'],current))
+    if not mismatches: return []
+    ancestor=command(['git','-C',repo['path'],'merge-base','--is-ancestor',repo['head'],base],check=False).returncode==0
+    dirty=[]
+    for name,current in mismatches:
+        original=command(['git','-C',repo['path'],'show',repo['head']+':'+name],check=False)
+        unchanged=current==(original.stdout if original.returncode==0 else None)
+        if not ancestor or not unchanged: dirty.append(name)
+    return dirty
+
+
+def authority_approval(adapter, base, authority, tasks):
+    """Only a local owner decision bound to the current source/task snapshot applies."""
+    approval=adapter.get('authority_approval') or {}
+    public=[{k:v for k,v in d.items() if k!='text'} for d in authority]
+    if (approval.get('base_sha')!=base or approval.get('authority_hash')!=digest(public)
+            or not tasks or not approval.get('task_ids')
+            or any(t['id'] not in approval['task_ids'] for t in tasks)
+            or any(digest(t) not in approval.get('contract_hashes',[]) for t in tasks)):
+        return {}
+    return {k:approval.get(k) is True for k in ('isolated_branch','remote_authority')}
+
+
+def local_resume_plan(config, run, path):
+    """Continue only an existing contract; explicitly leave remote freshness unknown."""
+    if config['integration'].get('push') or config['integration'].get('pull_request'):
+        raise Stop('BLOCKED_POLICY','Local-plan resume requires local-only integration settings')
+    saved=run['data']; adapter=config['projects'][run['project']]
+    worktree=Path(saved.get('worktree',''))
+    if not saved.get('worktree') or not worktree.is_dir():
+        raise Stop('BLOCKED_RECONCILIATION','Local-plan resume requires the preserved worktree')
+    raw=Path(path).read_bytes()
+    if len(raw)>1_000_000:
+        raise Stop('BLOCKED_RECONCILIATION','Local plan exceeds the snapshot size limit')
+    plan=json.loads(raw)
+    if not isinstance(plan,dict):
+        raise Stop('BLOCKED_RECONCILIATION','Invalid local plan snapshot')
+    saved_plan_hash=saved.get('plan_snapshot_hash')
+    if saved_plan_hash and digest(plan)!=saved_plan_hash:
+        raise Stop('BLOCKED_RECONCILIATION','Local plan differs from its saved checkpoint fingerprint')
+    if (plan.get('state')!='EXECUTE' or plan.get('project')!=run['project']
+            or plan.get('base_sha')!=saved['base_sha']):
+        raise Stop('BLOCKED_RECONCILIATION','Local plan project or base differs from checkpoint')
+    tasks=plan.get('tasks') or [plan.get('task')]
+    if not tasks or not all(isinstance(t,dict) for t in tasks):
+        raise Stop('BLOCKED_RECONCILIATION','Local plan lacks task contracts')
+    hashes=[digest(t) for t in tasks]
+    expected=saved.get('member_contract_hashes') or [saved['contract_hash']]
+    aggregate_hash=hashes[0] if len(hashes)==1 else digest(hashes)
+    keys=[digest([adapter.get('repository',run['project']),t.get('id')]) for t in tasks]
+    if (hashes!=expected or aggregate_hash!=saved['contract_hash']
+            or keys!=(saved.get('member_task_keys') or [run['task_key']])):
+        raise Stop('BLOCKED_RECONCILIATION','Local task contract differs from checkpoint')
+    for task in tasks:
+        # Reapply task screening; no commands or owner policy can come from this file.
+        parse_contract('```factory-task\n'+json.dumps({k:v for k,v in task.items() if k!='source'})+'\n```')
+    checks=list(dict.fromkeys(c for t in tasks for c in t['checks']))
+    aggregate=plan.get('task') or {}
+    if (not isinstance(aggregate,dict)
+            or {k:aggregate.get(k) for k in ('id','description','acceptance','paths')}!=saved['task_contract']
+            or aggregate.get('checks')!=checks):
+        raise Stop('BLOCKED_RECONCILIATION','Local aggregate scope or checks differ from checkpoint')
+    names=list(dict.fromkeys(adapter.get('instructions',[])+adapter.get('backlogs',[])))
+    # Resume reads exact authority from the already materialized worktree. The
+    # public path/hash list is checked against the checkpoint plan below, avoiding
+    # a potentially blocking lazy fetch of commit blobs during a local-only resume.
+    authority=worktree_authority(worktree,names)
+    public=[{k:v for k,v in doc.items() if k!='text'} for doc in authority]
+    if public!=plan.get('authority'):
+        raise Stop('BLOCKED_RECONCILIATION','Local instruction authority differs from the base snapshot')
+    approval=authority_approval(adapter,saved['base_sha'],authority,tasks)
+    if approval!=saved.get('authority_approval',{}):
+        raise Stop('BLOCKED_RECONCILIATION','Local owner authority approval differs from checkpoint')
+    if branch_conflicts(authority) and not approval.get('isolated_branch'):
+        raise Stop('BLOCKED_RECONCILIATION','Local instruction authority requires native reconciliation')
+    for task in tasks:
+        _,risk=classify(task,adapter.get('high_risk_paths',[]))
+        if risk in ('high','unknown') and digest(task) not in adapter.get('approved_contracts',[]):
+            raise Stop('BLOCKED_RECONCILIATION','Exact high-risk approval is missing')
+    all_checks=checks+adapter.get('final_checks',[])+adapter.get('setup_checks',[])
+    if not adapter.get('final_checks') or any(c not in adapter.get('checks',{}) for c in all_checks):
+        raise Stop('BLOCKED_RECONCILIATION','Local named checks or final gate are unavailable')
+    # Reconstruct operational fields from the checkpoint/config, not editable plan metadata.
+    plan.update(repository=saved['repository'],base_branch=saved['base_branch'],
+                authority=public,authority_approval=approval,profile=saved['profile'],risk=saved['risk'],
+                contract_hash=saved['contract_hash'],member_contract_hashes=hashes,member_task_keys=keys,
+                task_key=run['task_key'],planning_snapshot='explicit-local-checkpoint',
+                remote_freshness='not_refreshed')
+    return plan
+
+
 def resolve(config, project, *, mutate=False, batch_limit=1):
     if project not in config['projects']:
         raise Stop('NOT_FOUND','Unknown project; configured: '+', '.join(config['projects']))
@@ -86,10 +209,8 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
     if isinstance(loaded[-1],dict) and loaded[-1].get('state'):
         return loaded[-1]
     repo,github,meta,prs,issues,base,authority=loaded
-    repo_profile=ensure_profile(config,project,repo['path'],base)
     conflicts=branch_conflicts(authority)
-    dirty_authority=[d['path'] for d in authority if (Path(repo['path'])/d['path']).exists()
-                     and (Path(repo['path'])/d['path']).read_text()!=d['text']]
+    dirty_authority=dirty_authority_paths(repo,base,authority)
     tasks=[]
     for doc in authority:
         for t in parse_contract(doc['text']):
@@ -100,23 +221,28 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
             tasks.append(t)
     executable=[t for t in tasks if t.get('state') in ('EXECUTE','IN_PROGRESS')]
     executable.sort(key=lambda t:(t.get('state')!='IN_PROGRESS',t.get('priority',100),str(t['id'])))
+    approval=authority_approval(adapter,base,authority,executable)
     plan={'project':project,'state':'IDLE','repository':repo,'base_sha':base,
           'base_branch':meta['defaultBranchRef']['name'],'issues_enabled':meta['hasIssuesEnabled'],
           'open_prs':prs,'authority':[{k:v for k,v in d.items() if k!='text'} for d in authority],
-          'conflicts':conflicts,'dirty_authority':dirty_authority,'task':None,'tasks':[],
+          'conflicts':conflicts,'dirty_authority':dirty_authority,'authority_approval':approval,'task':None,'tasks':[],
           'reason':'No executable task contract in current repository authority','planning_snapshot':'frozen-per-run'}
-    if conflicts or dirty_authority:
+    if (conflicts and not approval.get('isolated_branch')) or (dirty_authority and not approval.get('remote_authority')):
         plan.update(state='NATIVE_HANDOFF',reason='Current repository authority conflicts with the execution plan'); return plan
     if not executable:
         if issues or any('EXECUTE' in d['text'] for d in authority) or prs:
             plan.update(state='NATIVE_HANDOFF',reason='Current work exists but has no unambiguous machine-readable acceptance/scope; native selection required')
         return plan
+    repo_profile=ensure_profile(config,project,repo['path'],base)
     batching=config.get('batching',{})
     if not batching.get('enabled',True) or config['integration'].get('push') or config['integration'].get('pull_request'):
         batch_limit=1
     batch_limit=max(1,min(int(batch_limit),int(batching.get('max_tasks',1))))
     selected=[]; details=[]; roots=None
     named=adapter.get('checks',{}); final=adapter.get('final_checks',[])
+    setup=adapter.get('setup_checks',[])
+    if not isinstance(setup,list) or not all(isinstance(n,str) and n for n in setup):
+        raise Stop('BLOCKED_POLICY','Owner setup checks must be a list of check names')
     if not final:
         plan.update(state='NATIVE_HANDOFF',reason='Owner final check allowlist is not configured'); return plan
     for task in executable:
@@ -141,10 +267,10 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
             reason='Required capability needs native Codex: '+', '.join(unsupported)
             if routed: reason+='; deferred route: '+json.dumps(routed,separators=(',',':'))
             plan.update(state='NATIVE_HANDOFF',reason=reason,task=task,capability_routes=routed); return plan
-        if any(c not in named for c in task['checks']+final):
+        if any(c not in named for c in task['checks']+final+setup):
             if selected: break
             plan.update(state='NATIVE_HANDOFF',reason='Owner check allowlist/final gate is not configured',task=task); return plan
-        for name in task['checks']+final:
+        for name in task['checks']+final+setup:
             argv=named[name]
             if not isinstance(argv,list) or not argv or not all(isinstance(a,str) for a in argv):
                 raise Stop('BLOCKED_POLICY','Configured checks must be nonempty argv lists')

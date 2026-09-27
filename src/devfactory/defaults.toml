@@ -1,4 +1,4 @@
-policy_version = "3.1"
+policy_version = "3.2"
 
 [budget]
 deadline_seconds = 1800
@@ -13,8 +13,10 @@ quota_bucket = "codex"
 unknown_quota = "pause"
 
 [context]
-manual_compaction = false
 native_autocompaction = true
+factory_auto_compaction = true
+compact_after_builder_turns = 2
+compact_min_remaining_tokens = 100000
 navigation_files = 40
 failure_log_bytes = 12000
 cold_paths = ["archive/", "docs/archive/", "docs/benchmarks/", "docs/receipts/", ".factory/", "coverage/", "dist/", "build/"]
@@ -42,6 +44,10 @@ push = false
 pull_request = false
 merge = false
 deploy = false
+
+[sandbox]
+# Network access is off by default and can be granted per project by the owner.
+network_access = false
 
 # Quality-first routing with a live-catalog fallback ladder.
 # Model availability is verified at runtime; quota exhaustion never triggers switching.

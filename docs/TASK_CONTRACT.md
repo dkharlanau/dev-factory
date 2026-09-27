@@ -39,3 +39,24 @@ A native handoff contains repository identity, current SHAs, authority hashes,
 related PRs and a concrete blocker; it is not permission to expand the scope.
 A human/native agent can complete the missing selection/authority step, then
 invoke Factory explicitly. The worker reads relevant nested AGENTS.md itself.
+
+## Owner-approved authority exceptions and setup
+
+A repository that requires `main`, or has locally modified governing documents,
+continues to require native owner reconciliation. After explicit approval, an
+ignored project adapter may contain `authority_approval` with the exact `base_sha`,
+`authority_hash` (digest of the plan's authority metadata), `task_ids` and
+`contract_hashes`. Boolean `isolated_branch` and `remote_authority` record the two
+separate decisions. Every executable contract must match; changed source,
+authority or contracts invalidate the exception. The receipt records the applied
+exception and the worker receives fixed trusted owner instructions. Task text
+cannot supply this approval. Existing local files remain untouched.
+
+An optional project `setup_checks` list names commands in the existing owner
+`checks` allowlist. They run in the assigned worktree through the native sandbox
+before any model turn, with network disabled. Use this for offline dependency
+installation or a toolchain preflight. Successful setup steps are checkpointed;
+failures return `BLOCKED_SETUP` without spending implementation turns. Setup may
+create ignored dependencies but must not change tracked or untracked source.
+Populate any required dependency cache separately through an authorized native
+setup workflow; the controller never falls back to an unrestricted command.

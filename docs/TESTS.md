@@ -1,6 +1,16 @@
 # Verification performed
 
-Current offline suite: **101 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Batch safety regression coverage includes the global worker lock and live lease,
+contention during validation/review, saved-result and native-turn recovery, unknown
+dispatch acknowledgement, active/interrupted turns, pause/deadline gates and explicit
+dead-owner resume. These cases use offline synthetic repositories and FakeRuntime;
+they do not establish live product execution or complete missing usage telemetry.
+
+The complete offline suite passed **178 tests** on Python 3.11.16 / macOS arm64 (2026-09-27) in a local checkout outside iCloud. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Planning regressions distinguish a clean ancestor checkout from edited, deleted or
+independently committed local governing instructions, without changing that checkout.
+Task handoffs skip repository history, and optional history failures remain explicitly
+unavailable while preventing unsupported cross-root grouping.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.
@@ -53,8 +63,9 @@ completion/no-op/failure/interruption/timeout. Unused context-policy/FSM tests w
 removed, so the count is not directly comparable to the old 86.
 
 Review rejection/repair, real-process dead lease, failure after local commit before
-validation, active-time exclusion of paused downtime, and explicit rejection of the
-inert automatic-compaction flag are covered. A dedicated private fixture also passed
+validation, and active-time exclusion of paused downtime are covered. Automatic
+compaction tests cover durable checkpoints, contract re-anchoring, token/turn reserves,
+unknown usage and ambiguous request recovery. A dedicated private fixture also passed
 real push/PR recovery after two injected controller failures, with no repeated model
 turns or PR. Runtime pins remain 0.157.1.
 

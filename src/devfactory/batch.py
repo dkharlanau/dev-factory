@@ -2,17 +2,57 @@
 from __future__ import annotations
 import json
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
-from .policy import Stop, Usage, check_quota, choose_model
-from .repository import apply_delta, changed, create_worktree, fingerprint, review_snapshot
+from .policy import Stop, Usage, Selection, check_quota, choose_model, integration_gate
+from .repository import (GitHub, apply_delta, changed, command, commit_owned, create_worktree,
+                         fingerprint, git, repository_id, review_snapshot, tracked_authority,
+                         trigger_snapshot)
 from .runtime import Runtime
 from .runner import SCHEMA, WORKER_RULES, failure_excerpt, redact, scopes_overlap
-from .state import atomic_json, digest
+from .state import Store, atomic_json, digest
+
+
+@contextmanager
+def _worker(state_dir, operation, project, identity, **metadata):
+    """Batch work shares the regular runner's lock, lease and pause/status store."""
+    store=Store(state_dir)
+    rid=None
+    claimed=False
+    try:
+        store.acquire_lock()
+        key=operation+':'+digest(identity)
+        previous=store.existing(key)
+        data={'operation':operation,'phase':operation,'task_id':key,**metadata}
+        rid=previous['id'] if previous else store.create(project,key,data)
+        store.claim(rid,recovering=previous is not None)
+        claimed=True
+        yield store,rid,data
+    except BaseException as error:
+        if claimed:
+            current=store.get(rid)['data']
+            current['reason']=redact(str(error))[:1200] if isinstance(error,Stop) else type(error).__name__
+            store.save(rid,error.state if isinstance(error,Stop) else 'BLOCKED_RECONCILIATION',current)
+        raise
+    finally:
+        if claimed: store.release(rid)
+        store.close()
 
 
 def _inside(path, scopes):
     return any(path==s or path.startswith(s.rstrip('/')+'/') for s in scopes)
+
+
+def integration_candidate(composition, adapter):
+    """Exact local values an owner must approve before a batch remote write."""
+    wt=Path(composition['worktree'])
+    authority=tracked_authority(composition.get('repository_path',wt),composition['base_sha'],
+                                adapter.get('instructions',[]))
+    return {'batch_fingerprint':composition['combined_fingerprint'],
+            'base_sha':composition['base_sha'],
+            'trigger_hash':trigger_snapshot(wt)['hash'],
+            'authority_hash':digest([{'path':row['path'],'sha256':row['sha256']} for row in authority])}
 
 
 def validate_reviewed_slices(runs):
@@ -47,6 +87,8 @@ def validate_reviewed_slices(runs):
         actual=changed(wt,base)
         if not actual:
             raise Stop('BLOCKED_BATCH','Reviewed slice has no changed files')
+        if any((wt/name).is_symlink() for name in actual):
+            raise Stop('NATIVE_HANDOFF','Batch composition refuses symlink changes')
         if any(not _inside(name,scopes) for name in actual):
             raise Stop('BLOCKED_SCOPE','Reviewed slice contains files outside its declared scope')
         seen_scopes.extend(scopes);expected_files.extend(actual)
@@ -69,6 +111,16 @@ def validate_reviewed_slices(runs):
 
 
 def compose_reviewed_slices(runs, state_dir):
+    identity=sorted(run['id'] for run in runs)
+    project=runs[0]['project'] if runs else 'unknown'
+    with _worker(state_dir,'batch',project,identity,run_ids=identity) as (store,rid,data):
+        result=_compose_reviewed_slices(runs,state_dir)
+        result['run_id']=rid
+        store.save(rid,result['state'],{**data,**result})
+        return result
+
+
+def _compose_reviewed_slices(runs, state_dir):
     meta=validate_reviewed_slices(runs)
     identity={'project':meta['project'],'base_sha':meta['base_sha'],
               'children':[[c['run_id'],c['contract_hash'],c['reviewed_fingerprint']] for c in meta['children']]}
@@ -98,9 +150,13 @@ def compose_reviewed_slices(runs, state_dir):
     combined=changed(worktree,meta['base_sha'])
     if combined!=meta['expected_files'] or sorted(applied)!=meta['expected_files']:
         raise Stop('BLOCKED_RECONCILIATION','Combined batch file set differs from reviewed slices')
+    head_sha=commit_owned(worktree,meta['base_sha'],meta['scopes'])
+    if changed(worktree,meta['base_sha'])!=meta['expected_files'] or git(worktree,'status','--porcelain'):
+        raise Stop('BLOCKED_RECONCILIATION','Committed batch differs from reviewed slices')
     result={'state':'COMPOSED_LOCAL','batch_id':batch_id,'identity':identity,
             'project':meta['project'],'base_sha':meta['base_sha'],'base_branch':meta['base_branch'],
-            'branch':branch,'worktree':str(worktree),'children':meta['children'],
+            'branch':branch,'worktree':str(worktree),'repository_path':meta['repository_path'],
+            'head_sha':head_sha,'children':meta['children'],
             'combined_files':combined,'combined_fingerprint':fingerprint(worktree,meta['base_sha']),
             'model_turns':0}
     atomic_json(manifest,result)
@@ -109,6 +165,17 @@ def compose_reviewed_slices(runs, state_dir):
 
 
 def review_composed_batch(config, composition, *, runtime_factory=Runtime):
+    with _worker(config['state_dir'],'batch-review',composition['project'],composition['batch_id'],
+                 batch_id=composition['batch_id'],worktree=composition['worktree']) as (store,rid,data):
+        def checkpoint(value):
+            store.save(rid,value['state'],{**data,**value})
+        result=_review_composed_batch(config,composition,runtime_factory=runtime_factory,
+                                     run_id=rid,checkpoint=checkpoint,paused=lambda:store.paused(rid))
+        checkpoint(result)
+        return result
+
+
+def _review_composed_batch(config, composition, *, runtime_factory, run_id, checkpoint, paused):
     """Run combined final checks and one fresh interaction review. No remote writes."""
     if composition.get('state')!='COMPOSED_LOCAL':
         raise Stop('BLOCKED_BATCH','Integration review requires a completed local composition')
@@ -129,6 +196,7 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
     gate_hash=digest({'policy_version':config.get('policy_version'),
                       'profiles':config.get('profiles'),
                       'final_checks':[(name,checks[name]) for name in names]})
+    saved=None
     if receipt.exists():
         saved=json.loads(receipt.read_text())
         if saved.get('composition_fingerprint')!=composition['combined_fingerprint']:
@@ -137,14 +205,53 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
             raise Stop('BLOCKED_RECONCILIATION','Batch integration policy/check configuration changed')
         if fingerprint(wt,base)!=saved.get('composition_fingerprint'):
             raise Stop('BLOCKED_RECONCILIATION','Batch worktree changed after integration receipt')
-        return saved
+        if saved.get('state') in ('BATCH_READY_LOCAL','BLOCKED_BATCH_VALIDATION','BLOCKED_BATCH_REVIEW'):
+            return saved
+
+    def save(value):
+        value['run_id']=run_id
+        atomic_json(receipt,value)
+        checkpoint(value)
+
+    def guard(deadline):
+        if paused(): raise Stop('PAUSED','Owner requested batch pause')
+        if time.time()>=deadline: raise Stop('PAUSED_DEADLINE','Batch foreground deadline reached')
+
+    # Once dispatch may have happened, this command can only reconcile that attempt.
+    # Missing telemetry or a lost acknowledgement never authorizes a second turn.
+    if saved and saved.get('dispatch_started'):
+        usage=Usage(saved.get('usage_threads'))
+        result=saved.get('result')
+        if result is None:
+            tid=saved.get('thread_id')
+            turn_id=saved.get('turn_id')
+            if not tid or not turn_id:
+                raise Stop('BLOCKED_RECONCILIATION','Batch review dispatch acknowledgement is unknown; inspect the preserved native thread')
+            with runtime_factory(wt) as rt:
+                selection=Selection(**saved['reviewer'])
+                rt.start(saved['review_worktree'],selection,WORKER_RULES,resume=tid)
+                thread=rt.rpc('thread/read',{'threadId':tid,'includeTurns':True})['thread']
+                matches=[t for t in thread.get('turns',[]) if t.get('id')==turn_id]
+                if thread.get('status',{}).get('type')=='active' or any(t.get('status')=='inProgress' for t in thread.get('turns',[])):
+                    raise Stop('BLOCKED_RECONCILIATION','Batch review native turn is still active; no new dispatch allowed')
+                if len(matches)!=1 or matches[0].get('status')!='completed':
+                    raise Stop('BLOCKED_RECONCILIATION','Batch review did not complete with a recoverable verdict; no new dispatch allowed')
+                messages=[i.get('text') for i in matches[0].get('items',[])
+                          if i.get('type')=='agentMessage' and i.get('phase') in (None,'final_answer')]
+                if not messages:
+                    raise Stop('BLOCKED_RECONCILIATION','Completed batch review has no persisted final verdict')
+                result={'status':'completed','final':messages[-1]}
+                saved.update(result=result,usage_complete=False,recovered=True)
+                save(saved)
+        return _finish_review(saved,result,usage,wt,base,save)
 
     deadline=time.time()+config['budget']['deadline_seconds']
     final_receipts=[]
     with runtime_factory(wt) as rt:
         for name in names:
+            guard(deadline)
             before=fingerprint(wt,base)
-            result=rt.command(wt,checks[name],timeout=min(600,max(1,deadline-time.time())))
+            result=rt.command(wt,checks[name],timeout=min(600,max(1,deadline-time.time())),should_pause=paused)
             row={'check':name,'exit_code':result.get('exitCode'),
                  'failure_excerpt':failure_excerpt(result)}
             final_receipts.append(row)
@@ -154,10 +261,11 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
                 out={'state':'BLOCKED_BATCH_VALIDATION','batch_id':composition['batch_id'],
                      'composition_fingerprint':composition['combined_fingerprint'],'gate_hash':gate_hash,
                      'final_checks':final_receipts,'review':None,'model_turns':0}
-                atomic_json(receipt,out)
+                save(out)
                 return out
 
         budget=config['budget']
+        guard(deadline)
         quota=rt.quota();check_quota(quota,budget)
         children=composition['children']
         deep=any(c.get('profile')=='deep' or c.get('risk')=='high' or
@@ -166,46 +274,74 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
         selection=choose_model(profile,config,rt.catalog,rt.native,high_risk=deep)
         attempts=sorted(root.glob('integration-review-*'))
         review_dir=root/f'integration-review-{len(attempts)+1}'
-        before_review=fingerprint(wt,base)
         review_snapshot(wt,review_dir,base)
         review_fingerprint=fingerprint(review_dir,base)
         instructions=WORKER_RULES+(
             '\nRole: independently review the combined diff against every supplied task acceptance. '
             'Do not edit. Use the supplied final-check evidence; rerun a passing check only for a '
             'specific unresolved concern. Report concrete file/line findings.\n')
-        tid=rt.start(review_dir,selection,instructions,read_only=False,resume=None)
         usage=Usage()
         packet={'role':'review','batch':composition['batch_id'],'base_sha':base,
                 'tasks':[contract for c in children for contract in c['task_contracts']],
                 'combined_files':composition['combined_files'],
                 'final_checks':final_receipts,'diff_command':['git','diff',base]}
         raw=json.dumps(packet,separators=(',',':'),ensure_ascii=False)
+        pending={'state':'BATCH_REVIEW_PENDING','batch_id':composition['batch_id'],
+                 'composition_fingerprint':composition['combined_fingerprint'],'gate_hash':gate_hash,
+                 'base_sha':base,'head_sha':composition.get('head_sha'),
+                 'children':[{k:c[k] for k in ('run_id','contract_hash','reviewed_fingerprint')} for c in children],
+                 'integration_candidate':integration_candidate(composition,adapter),
+                 'final_checks':final_receipts,'review':None,'reviewer':selection.dict(),
+                 'review_worktree':str(review_dir),'review_fingerprint':review_fingerprint,
+                 'usage_threads':{},'usage':usage.aggregate(),'usage_complete':False,
+                 'model_turns':0,'dispatch_attempts':0,'packet_utf8_bytes':len(raw.encode())}
+        save(pending)
+        guard(deadline)
+        tid=rt.start(review_dir,selection,instructions,read_only=False,resume=None)
+        pending.update(thread_id=tid,dispatch_started=True,dispatch_attempts=1,model_turns=None)
+        save(pending)
+        def started(thread_id,turn_id):
+            pending.update(state='BATCH_REVIEW_RUNNING',thread_id=thread_id,turn_id=turn_id,model_turns=1)
+            save(pending)
         def event(method,payload):
             if method=='thread/tokenUsage/updated':
                 usage.observe(payload['threadId'],payload['tokenUsage'])
-        result=rt.turn(tid,raw,selection,deadline=deadline,on_event=event,
-                       on_start=lambda *_: None,output_schema=SCHEMA,external=True)
+                pending.update(usage_threads=usage.totals,usage=usage.aggregate())
+                save(pending)
+        try:
+            guard(deadline)
+            result=rt.turn(tid,raw,selection,deadline=deadline,on_event=event,should_pause=paused,
+                           on_start=started,output_schema=SCHEMA,external=True)
+        except BaseException as error:
+            pending.update(state='BLOCKED_RECONCILIATION',failure=type(error).__name__)
+            save(pending)
+            raise
         if result.get('usage'): usage.observe(tid,result['usage'])
-        if result['status']!='completed':
-            raise Stop('BLOCKED_RUNTIME','Batch integration review turn did not complete')
-        try: verdict=json.loads(result.get('final') or '')
-        except ValueError: raise Stop('BLOCKED_RESULT','Batch reviewer did not return structured verdict')
-        if not isinstance(verdict,dict) or verdict.get('verdict') not in ('PASS','REPAIR','BLOCKED'):
-            raise Stop('BLOCKED_RESULT','Invalid batch reviewer verdict')
-        if fingerprint(review_dir,base)!=review_fingerprint:
-            raise Stop('BLOCKED_REVIEW','Batch reviewer modified its isolated snapshot')
-        if fingerprint(wt,base)!=before_review:
-            raise Stop('BLOCKED_RECONCILIATION','Composed batch changed during integration review')
-        passed=verdict['verdict']=='PASS' and not verdict.get('findings')
-        out={'state':'BATCH_READY_LOCAL' if passed else 'BLOCKED_BATCH_REVIEW',
-             'batch_id':composition['batch_id'],'composition_fingerprint':composition['combined_fingerprint'],
-             'gate_hash':gate_hash,
-             'final_checks':final_receipts,'review':verdict['verdict'],
-             'review_summary':redact(str(verdict.get('summary','')))[:1200],
-             'findings':verdict.get('findings',[]),'reviewer':selection.dict(),
-             'usage':usage.aggregate(),'model_turns':1,'packet_utf8_bytes':len(raw.encode())}
-        atomic_json(receipt,out)
-        return out
+        pending.update(result={k:result.get(k) for k in ('status','final','stop_state')},
+                       usage_threads=usage.totals,usage=usage.aggregate(),usage_complete=bool(result.get('usage')))
+        save(pending)
+        return _finish_review(pending,result,usage,wt,base,save)
+
+
+def _finish_review(pending,result,usage,wt,base,save):
+    if result['status']!='completed':
+        pending['state']=result.get('stop_state') or 'BLOCKED_RUNTIME'
+        save(pending)
+        raise Stop(pending['state'],'Batch integration review turn did not complete; attempt preserved')
+    try: verdict=json.loads(result.get('final') or '')
+    except ValueError: raise Stop('BLOCKED_RESULT','Batch reviewer did not return structured verdict')
+    if not isinstance(verdict,dict) or verdict.get('verdict') not in ('PASS','REPAIR','BLOCKED') or not isinstance(verdict.get('findings'),list):
+        raise Stop('BLOCKED_RESULT','Invalid batch reviewer verdict')
+    if fingerprint(pending['review_worktree'],base)!=pending['review_fingerprint']:
+        raise Stop('BLOCKED_REVIEW','Batch reviewer modified its isolated snapshot')
+    if fingerprint(wt,base)!=pending['composition_fingerprint']:
+        raise Stop('BLOCKED_RECONCILIATION','Composed batch changed during integration review')
+    passed=verdict['verdict']=='PASS' and not verdict['findings']
+    pending.update(state='BATCH_READY_LOCAL' if passed else 'BLOCKED_BATCH_REVIEW',review=verdict['verdict'],
+                   review_summary=redact(str(verdict.get('summary','')))[:1200],
+                   findings=verdict['findings'],usage=usage.aggregate())
+    save(pending)
+    return pending
 
 
 
@@ -219,3 +355,116 @@ def load_composition(state_dir, batch_id):
     if value.get('batch_id')!=batch_id or value.get('state')!='COMPOSED_LOCAL':
         raise Stop('BLOCKED_RECONCILIATION','Invalid batch composition receipt')
     return value
+
+
+def integrate_reviewed_batch(config, composition, *, github_factory=GitHub):
+    """Explicit remote write for one already-committed, independently reviewed batch."""
+    with _worker(config['state_dir'],'batch-integrate',composition['project'],composition['batch_id'],
+                 batch_id=composition['batch_id'],worktree=composition['worktree']) as (store,rid,data):
+        result=_integrate_reviewed_batch(config,composition,github_factory=github_factory,
+                                         run_id=rid,checkpoint=lambda value:store.save(rid,value['state'],{**data,**value}))
+        store.save(rid,result['state'],{**data,**result})
+        return result
+
+
+def _integrate_reviewed_batch(config, composition, *, github_factory, run_id, checkpoint):
+    if composition.get('state')!='COMPOSED_LOCAL':
+        raise Stop('BLOCKED_BATCH','Remote integration requires completed composition')
+    if not config['integration'].get('push') or not config['integration'].get('pull_request'):
+        raise Stop('READY_LOCAL','Batch remote integration disabled by owner policy')
+    adapter=config['projects'].get(composition['project'])
+    if not adapter:
+        raise Stop('BLOCKED_BATCH','Batch project is not configured')
+    wt=Path(composition['worktree'])
+    base=composition['base_sha']; head=composition.get('head_sha')
+    if not wt.is_dir() or not head or git(wt,'rev-parse','HEAD')!=head or git(wt,'status','--porcelain'):
+        raise Stop('BLOCKED_RECONCILIATION','Batch commit/worktree is unavailable or dirty')
+    if fingerprint(wt,base)!=composition['combined_fingerprint'] or changed(wt,base)!=composition['combined_files']:
+        raise Stop('BLOCKED_RECONCILIATION','Composed batch differs from the reviewed fingerprint')
+    root=Path(config['state_dir']).resolve()/'batches'/composition['batch_id']
+    review_path=root/'integration.json'
+    if not review_path.is_file():
+        raise Stop('BLOCKED_BATCH','Fresh batch integration review is missing')
+    review=json.loads(review_path.read_text())
+    names=list(dict.fromkeys(adapter.get('final_checks',[])))
+    checks=adapter.get('checks',{})
+    gate_hash=digest({'policy_version':config.get('policy_version'),
+                      'profiles':config.get('profiles'),
+                      'final_checks':[(name,checks.get(name)) for name in names]})
+    if (review.get('state')!='BATCH_READY_LOCAL' or review.get('review')!='PASS' or
+        review.get('composition_fingerprint')!=composition['combined_fingerprint'] or
+        review.get('gate_hash')!=gate_hash or review.get('head_sha')!=head or
+        any(row.get('exit_code')!=0 for row in review.get('final_checks',[])) or
+        [row.get('check') for row in review.get('final_checks',[])]!=names):
+        raise Stop('BLOCKED_RECONCILIATION','Batch review/check receipt does not match current commit')
+    remote=git(wt,'remote','get-url','origin')
+    if not adapter.get('fixture') and repository_id(remote)!=adapter.get('repository','').lower():
+        raise Stop('BLOCKED_REPOSITORY','Batch origin differs from configured GitHub repository')
+    candidate=integration_candidate(composition,adapter)
+    approval=adapter.get('batch_integration_approvals',{}).get(composition['batch_id'],{})
+    if review.get('integration_candidate')!=candidate or any(approval.get(k)!=v for k,v in candidate.items()):
+        raise Stop('NATIVE_HANDOFF','Batch remote write needs exact reviewed composition, triggers and owner authority approval')
+    evidence=dict(approval,checks_passed=True,review_passed=True,reviewed_sha=head,
+                  head_sha=head,reviewed_base=base,base_sha=base)
+    integration_gate(config['integration'],evidence)
+    current=git(wt,'ls-remote','origin','refs/heads/'+composition['base_branch']).split()
+    if not current or current[0]!=base:
+        raise Stop('NATIVE_HANDOFF','Remote base changed after batch review')
+    branch=composition['branch']
+    if not branch.startswith('codex/factory-batch-'):
+        raise Stop('BLOCKED_RECONCILIATION','Batch branch identity changed')
+    gh=github_factory(adapter['repository'],adapter.get('allow_gh',False))
+    receipt=root/'batch-remote.json'
+    identity={'batch_id':composition['batch_id'],'base_sha':base,'head_sha':head,
+              'combined_fingerprint':composition['combined_fingerprint'],
+              'gate_hash':gate_hash,'approval_hash':digest(approval)}
+    if receipt.exists():
+        saved=json.loads(receipt.read_text())
+        if saved.get('identity')!=identity:
+            raise Stop('BLOCKED_RECONCILIATION','Saved batch remote intent changed')
+    else:
+        saved={'state':'BATCH_REMOTE_PENDING','identity':identity,'run_id':run_id,
+               'batch_id':composition['batch_id'],'branch':branch,'base_branch':composition['base_branch'],
+               'children':review['children'],'final_checks':review['final_checks'],
+               'review':review['review'],'usage':review.get('usage'),
+               'review_model_turns':review.get('model_turns'),'model_turns':0}
+        atomic_json(receipt,saved);checkpoint(saved)
+    remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+    if remote_head and remote_head[0]!=head:
+        raise Stop('BLOCKED_RECONCILIATION','Remote batch branch differs; no force push')
+    if saved['state']=='BATCH_PR_OPENED':
+        observed=gh.find_pr(branch)
+        if (not remote_head or not observed or observed!=saved.get('pr') or
+            observed.get('state')!='OPEN' or observed.get('headRefOid')!=head or
+            observed.get('baseRefName')!=composition['base_branch'] or observed.get('isDraft') is not True):
+            raise Stop('BLOCKED_RECONCILIATION','Completed batch PR no longer matches reviewed receipt')
+        return saved
+    if not remote_head:
+        try:
+            command(['git','-c','core.hooksPath=/dev/null','-C',str(wt),'push','--set-upstream','origin',branch],timeout=90)
+        except Stop:
+            # A lost acknowledgement can still mean the push succeeded.
+            remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+            if not remote_head or remote_head[0]!=head:
+                raise Stop('BLOCKED_RECONCILIATION','Batch push not confirmed; intent preserved for reconciliation')
+    remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+    if not remote_head or remote_head[0]!=head:
+        raise Stop('BLOCKED_RECONCILIATION','Batch remote head not confirmed')
+    saved['state']='BATCH_BRANCH_PUSHED';atomic_json(receipt,saved);checkpoint(saved)
+    body=root/'pr-body.md'
+    body.write_text(f'Reviewed Factory batch `{composition["batch_id"]}` with {len(composition["children"])} disjoint slices.\n\n'
+                    f'Base: `{base}`. Head: `{head}`. Final checks and fresh integration review: PASS.\n\n'
+                    'Local receipt: `batch-remote.json`. No merge or deploy authorization.\n')
+    pr=gh.ensure_pr(branch,composition['base_branch'],body,
+                    'Integrate reviewed batch '+composition['batch_id'],wt)
+    observed=gh.find_pr(branch)
+    latest_base=git(wt,'ls-remote','origin','refs/heads/'+composition['base_branch']).split()
+    if (not latest_base or latest_base[0]!=base or not observed or observed.get('state')!='OPEN' or
+        observed.get('isDraft') is not True or
+        observed.get('baseRefName')!=composition['base_branch'] or observed.get('headRefOid')!=head or
+        observed.get('url')!=pr.get('url')):
+        raise Stop('BLOCKED_RECONCILIATION','Draft batch PR/base not confirmed at reviewed head')
+    saved.update(state='BATCH_PR_OPENED',pr=observed,remote_head=head,
+                 native_attachment_required=observed['url'])
+    atomic_json(receipt,saved);checkpoint(saved)
+    return saved

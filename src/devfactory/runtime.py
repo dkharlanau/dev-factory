@@ -83,6 +83,12 @@ class Runtime:
         self.inventory_only = inventory_only
         self.disabled_servers = []
         self.thread_settings = {}
+        self.network_access = False
+
+    def configure_sandbox(self, *, network_access=False):
+        if not isinstance(network_access,bool):
+            raise Stop("BLOCKED_POLICY", "Sandbox network access must be an owner boolean")
+        self.network_access = network_access
 
     def __enter__(self):
         self.client.start()
@@ -177,7 +183,7 @@ class Runtime:
     def worker_config(self):
         cfg = {"features.apps": False, "features.hooks": False, "features.multi_agent": False,
                "features.memories": False, "web_search": "disabled",
-               "sandbox_workspace_write.network_access": False,
+               "sandbox_workspace_write.network_access": self.network_access,
                "sandbox_workspace_write.writable_roots": []}
         for name in self.disabled_servers:
             cfg[f'mcp_servers.{name}.enabled'] = False
@@ -299,7 +305,7 @@ class Runtime:
                     "command": argv, "cwd": str(cwd), "timeoutMs": max(1, int(timeout * 1000)),
                     "processId": process_id, "outputBytesCap": 2_000_000,
                     "sandboxPolicy": {"type": "workspaceWrite", "writableRoots": [str(cwd)],
-                                      "networkAccess": False},
+                                      "networkAccess": self.network_access},
                 }))
             except Exception as e:
                 result.put(e)
@@ -319,9 +325,9 @@ class Runtime:
                         pass
                     raise Stop("PAUSED" if should_pause() else "PAUSED_DEADLINE", "Validation interrupted")
 
-    def compact(self, tid, *, deadline, checkpoint, on_event=lambda *_: None):
+    def compact(self, tid, *, deadline, checkpoint, on_event=lambda *_: None, on_start=lambda *_: None):
         if not checkpoint:
-            raise Stop("BLOCKED_CONTEXT", "Durable checkpoint required before manual compaction")
+            raise Stop("BLOCKED_CONTEXT", "Durable checkpoint required before compaction")
         if time.time() >= deadline:
             return {"state": "TIMEOUT", "turn_id": None, "usage": None}
         current = self.read(tid)["thread"]
@@ -331,6 +337,8 @@ class Runtime:
         previous = {t["id"] for t in before}
         if time.time() >= deadline:
             return {"state": "TIMEOUT", "turn_id": None, "usage": None}
+        # Persist the reconciliation boundary before the external compaction request.
+        on_start({"previous_turn_ids": sorted(previous)})
         self.rpc("thread/compact/start", {"threadId": tid})
         latest = None
         # SDK 0.157.1 drops unsolicited turn events without a pre-existing turn
