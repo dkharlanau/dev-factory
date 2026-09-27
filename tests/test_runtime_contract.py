@@ -71,7 +71,7 @@ def test_manifest_and_skill():
 
 @pytest.mark.parametrize('argv',[['doctor'],['doctor','--live'],['models'],['prep','voice-lab'],['plan','voice-lab'],
  ['compile','voice-lab','--max-tasks','10'],['run','demo','--max-tasks','1'],
- ['batch','a','b'],['batch-review','0123456789abcdef'],
+ ['batch','a','b'],['batch-review','0123456789abcdef'],['batch-integrate','0123456789abcdef'],
  ['status'],['pause','id'],['resume','id'],['report'],['benchmark'],['benchmark','--live']])
 def test_cli_schema(argv): assert parser().parse_args(argv).command==argv[0]
 

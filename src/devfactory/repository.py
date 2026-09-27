@@ -146,7 +146,7 @@ class GitHub:
 
     def find_pr(self, branch):
         rows = self.json('pr','list','--repo',self.repository,'--head',branch,'--state','all',
-                         '--json','number,url,state,headRefOid,isDraft')
+                         '--json','number,url,state,headRefOid,baseRefName,isDraft')
         if len(rows) > 1:
             raise Stop('BLOCKED_RECONCILIATION','Multiple PRs match Factory branch')
         return rows[0] if rows else None

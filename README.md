@@ -289,18 +289,29 @@ without another implementation turn.
 ```sh
 ./factory batch <run-id> <run-id> [...]
 ./factory batch-review <batch-id>
+./factory batch-integrate <batch-id>  # optional, explicit remote draft PR
 ```
 
 `batch` is deterministic and uses zero model turns. It rechecks each reviewed fingerprint, applies the exact
-tracked/untracked deltas into a fresh Factory worktree, verifies the resulting file set, and writes an idempotent
+tracked/untracked deltas into a fresh Factory worktree, commits that exact tree, verifies the resulting file set, and writes an idempotent
 composition receipt. `batch-review` then runs the configured broad final checks once and spends exactly one fresh
 integration-review turn across all child acceptance criteria. It never auto-repairs a failed composition; a defect
 blocks the batch instead of mutating already-reviewed slices.
 
+`batch-integrate` is a separate remote-write command. It requires a `BATCH_READY_LOCAL` receipt,
+`integration.push = true`, `integration.pull_request = true`, the project's `allow_gh = true`,
+and an exact owner approval at `projects.<project>.batch_integration_approvals.<batch-id>`.
+Copy `batch_fingerprint`, `base_sha`, `trigger_hash`, and `authority_hash` from the
+`integration_candidate` in the ignored `batches/<batch-id>/integration.json` receipt;
+set `triggers_reviewed`, `spend_reviewed`, and `owner_restrictions_reviewed` only after
+checking the actual remote/hosting effects. The command rejects a changed base, head, scope,
+approval, or review, then pushes the reviewed commit and reconciles exactly one draft PR.
+Ambiguous push/PR responses are checked against the remote before a retry. No merge or deploy occurs.
+
 This layer is intentionally optional: do not split work merely to use it. The ordinary v3.1 repo-aware micro-batch
 path is cheaper when tasks can be safely implemented together from the start.
 
-Composition and integration review share the ordinary runner's global worker lock and
+Composition, integration review, and explicit remote integration share the ordinary runner's global worker lock and
 lease. Their run IDs appear in `status`/`report`; `pause <run-id>` requests a review
 pause and `resume <run-id>` reconciles the saved batch operation. A live lease is never
 stolen. Review dispatch, native thread/turn identity and observed usage are persisted

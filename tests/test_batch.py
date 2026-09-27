@@ -6,12 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from devfactory.batch import compose_reviewed_slices, review_composed_batch, validate_reviewed_slices
+from devfactory.batch import (compose_reviewed_slices, integrate_reviewed_batch,
+                              review_composed_batch, validate_reviewed_slices)
 from devfactory.fixture import TASK
 from devfactory.policy import Stop
-from devfactory.repository import git
+from devfactory.repository import fingerprint, git, tracked_authority, trigger_snapshot
 from devfactory.runner import Runner
-from devfactory.state import Store
+from devfactory.state import Store, digest
 from fakes import FakeRuntime
 
 
@@ -48,10 +49,131 @@ def test_compose_reviewed_slices_is_exact_and_idempotent(cfg):
     assert batch['combined_files']==['clamp.py','second.txt']
     wt=Path(batch['worktree'])
     assert (wt/'second.txt').read_text()=='fixture change\n'
+    assert git(wt,'rev-parse','HEAD')==batch['head_sha']
+    assert git(wt,'status','--porcelain')==''
     check=subprocess.run([os.sys.executable,'-m','unittest','-v'],cwd=wt,capture_output=True,text=True)
     assert check.returncode==0,check.stderr
     repeat=compose_reviewed_slices(runs,cfg['state_dir'])
     assert repeat==batch and len(FakeRuntime.turns)==turns
+
+
+class BatchGitHub:
+    prs={}
+    creates=0
+    def __init__(self,repository,allowed):
+        assert repository=='fixture/demo' and allowed
+    def find_pr(self,branch):
+        return self.prs.get(branch)
+    def ensure_pr(self,branch,base,body_file,title,cwd):
+        if branch not in self.prs:
+            type(self).creates+=1
+            self.prs[branch]={'number':1,'url':'https://github.com/fixture/demo/pull/1',
+                              'state':'OPEN','isDraft':True,'baseRefName':base,
+                              'headRefOid':git(cwd,'rev-parse','HEAD')}
+        return self.prs[branch]
+
+
+def reviewed_remote_batch(cfg,tmp_path):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    review=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert review['state']=='BATCH_READY_LOCAL'
+    repo=Path(cfg['projects']['demo']['path'])
+    remote=tmp_path/'remote.git'
+    subprocess.run(['git','init','--bare','-q',str(remote)],check=True)
+    git(repo,'remote','add','origin',str(remote))
+    git(repo,'push','origin','main')
+    adapter=cfg['projects']['demo']
+    adapter.update(repository='fixture/demo',allow_gh=True)
+    authority=tracked_authority(repo,batch['base_sha'],adapter['instructions'])
+    adapter['batch_integration_approvals']={batch['batch_id']:{
+        'batch_fingerprint':batch['combined_fingerprint'],'base_sha':batch['base_sha'],
+        'trigger_hash':trigger_snapshot(batch['worktree'])['hash'],
+        'authority_hash':digest([{'path':row['path'],'sha256':row['sha256']} for row in authority]),
+        'triggers_reviewed':True,'spend_reviewed':True,'owner_restrictions_reviewed':True}}
+    cfg['integration'].update(push=True,pull_request=True)
+    BatchGitHub.prs={};BatchGitHub.creates=0
+    return batch,remote
+
+
+def test_batch_remote_integration_opens_one_draft_pr_and_reuses_receipt(cfg,tmp_path):
+    batch,remote=reviewed_remote_batch(cfg,tmp_path)
+    turns=len(FakeRuntime.turns)
+    result=integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert result['state']=='BATCH_PR_OPENED' and result['model_turns']==0
+    assert result['pr']['isDraft'] and result['pr']['headRefOid']==batch['head_sha']
+    assert git(remote,'rev-parse','refs/heads/'+batch['branch'])==batch['head_sha']
+    assert result['children'] and result['final_checks'] and result['review']=='PASS'
+    repeat=integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert repeat['state']=='BATCH_PR_OPENED' and BatchGitHub.creates==1
+    assert len(FakeRuntime.turns)==turns
+
+
+def test_batch_remote_integration_refuses_unreviewed_or_changed_authority(cfg,tmp_path):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    cfg['integration'].update(push=True,pull_request=True)
+    with pytest.raises(Stop,match='review is missing'):
+        integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert not (Path(cfg['state_dir'])/'batches'/batch['batch_id']/'batch-remote.json').exists()
+
+
+def test_batch_remote_integration_reconciles_lost_push_ack(cfg,tmp_path,monkeypatch):
+    batch,remote=reviewed_remote_batch(cfg,tmp_path)
+    from devfactory import batch as module
+    original=module.command
+    failed=False
+    def lost_ack(argv,**kwargs):
+        nonlocal failed
+        result=original(argv,**kwargs)
+        if argv[-3:]==['--set-upstream','origin',batch['branch']] and not failed:
+            failed=True
+            raise Stop('BLOCKED_INFRASTRUCTURE','Injected lost push acknowledgement')
+        return result
+    monkeypatch.setattr(module,'command',lost_ack)
+    result=integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert failed and result['state']=='BATCH_PR_OPENED'
+    assert git(remote,'rev-parse','refs/heads/'+batch['branch'])==batch['head_sha']
+    assert BatchGitHub.creates==1
+
+
+def test_batch_remote_integration_recovers_existing_pr_after_lost_ack(cfg,tmp_path):
+    batch,remote=reviewed_remote_batch(cfg,tmp_path)
+    class LostPrAck(BatchGitHub):
+        failed=False
+        def ensure_pr(self,*args):
+            pr=super().ensure_pr(*args)
+            if not type(self).failed:
+                type(self).failed=True
+                raise Stop('BLOCKED_GITHUB','Injected lost PR acknowledgement')
+            return pr
+    with pytest.raises(Stop,match='lost PR acknowledgement'):
+        integrate_reviewed_batch(cfg,batch,github_factory=LostPrAck)
+    assert LostPrAck.creates==1
+    assert git(remote,'rev-parse','refs/heads/'+batch['branch'])==batch['head_sha']
+    recovered=integrate_reviewed_batch(cfg,batch,github_factory=LostPrAck)
+    assert recovered['state']=='BATCH_PR_OPENED' and LostPrAck.creates==1
+
+
+def test_batch_remote_integration_refuses_changed_remote_base(cfg,tmp_path):
+    batch,remote=reviewed_remote_batch(cfg,tmp_path)
+    git(remote,'symbolic-ref','HEAD','refs/heads/main')
+    repo=Path(cfg['projects']['demo']['path'])
+    (repo/'after.txt').write_text('new base\n')
+    git(repo,'add','after.txt')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Move base')
+    git(repo,'push','origin','main')
+    with pytest.raises(Stop,match='Remote base changed'):
+        integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert git(remote,'show-ref','--verify','refs/heads/'+batch['branch'],check=False)==''
+
+
+def test_batch_remote_integration_requires_exact_approval(cfg,tmp_path):
+    batch,remote=reviewed_remote_batch(cfg,tmp_path)
+    cfg['projects']['demo']['batch_integration_approvals'][batch['batch_id']]['trigger_hash']='wrong'
+    with pytest.raises(Stop,match='exact reviewed composition'):
+        integrate_reviewed_batch(cfg,batch,github_factory=BatchGitHub)
+    assert git(remote,'show-ref','--verify','refs/heads/'+batch['branch'],check=False)==''
 
 
 def test_integrated_batch_runs_combined_checks_and_one_fresh_review(cfg):
@@ -97,6 +219,28 @@ def test_batch_refuses_overlap(cfg):
     duplicate['data']['task_id']='duplicate'
     with pytest.raises(Stop,match='scopes overlap'):
         validate_reviewed_slices([runs[0],duplicate])
+
+
+def test_batch_refuses_parent_child_scope_overlap(cfg):
+    runs=reviewed_pair(cfg)
+    parent=copy.deepcopy(runs[0]);parent['id']='a-parent'
+    child=copy.deepcopy(runs[1]);child['id']='b-child';child['data']['subsystem']=['clamp.py/nested']
+    with pytest.raises(Stop,match='scopes overlap'):
+        validate_reviewed_slices([parent,child])
+
+
+def test_batch_refuses_reviewed_symlink_and_preserves_binary_bytes(cfg):
+    runs=reviewed_pair(cfg)
+    second=Path(runs[1]['data']['worktree'])/'second.txt'
+    second.unlink();second.symlink_to('clamp.py')
+    runs[1]['data']['reviewed_fingerprint']=fingerprint(second.parent,runs[1]['data']['base_sha'])
+    with pytest.raises(Stop,match='symlink changes'):
+        validate_reviewed_slices(runs)
+    second.unlink();second.write_bytes(b'\x00\xff\x10 reviewed bytes')
+    runs[1]['data']['reviewed_fingerprint']=fingerprint(second.parent,runs[1]['data']['base_sha'])
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    assert (Path(batch['worktree'])/'second.txt').read_bytes()==second.read_bytes()
+    assert git(batch['worktree'],'status','--porcelain')==''
 
 
 def test_batch_refuses_base_mismatch(cfg):

@@ -5,8 +5,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .policy import Stop, Usage, Selection, check_quota, choose_model
-from .repository import apply_delta, changed, create_worktree, fingerprint, review_snapshot
+from .policy import Stop, Usage, Selection, check_quota, choose_model, integration_gate
+from .repository import (GitHub, apply_delta, changed, command, commit_owned, create_worktree,
+                         fingerprint, git, repository_id, review_snapshot, tracked_authority,
+                         trigger_snapshot)
 from .runtime import Runtime
 from .runner import SCHEMA, WORKER_RULES, failure_excerpt, redact, scopes_overlap
 from .state import Store, atomic_json, digest
@@ -42,6 +44,17 @@ def _inside(path, scopes):
     return any(path==s or path.startswith(s.rstrip('/')+'/') for s in scopes)
 
 
+def integration_candidate(composition, adapter):
+    """Exact local values an owner must approve before a batch remote write."""
+    wt=Path(composition['worktree'])
+    authority=tracked_authority(composition.get('repository_path',wt),composition['base_sha'],
+                                adapter.get('instructions',[]))
+    return {'batch_fingerprint':composition['combined_fingerprint'],
+            'base_sha':composition['base_sha'],
+            'trigger_hash':trigger_snapshot(wt)['hash'],
+            'authority_hash':digest([{'path':row['path'],'sha256':row['sha256']} for row in authority])}
+
+
 def validate_reviewed_slices(runs):
     if len(runs) < 2:
         raise Stop('BLOCKED_BATCH','Batch composition requires at least two reviewed slices')
@@ -74,6 +87,8 @@ def validate_reviewed_slices(runs):
         actual=changed(wt,base)
         if not actual:
             raise Stop('BLOCKED_BATCH','Reviewed slice has no changed files')
+        if any((wt/name).is_symlink() for name in actual):
+            raise Stop('NATIVE_HANDOFF','Batch composition refuses symlink changes')
         if any(not _inside(name,scopes) for name in actual):
             raise Stop('BLOCKED_SCOPE','Reviewed slice contains files outside its declared scope')
         seen_scopes.extend(scopes);expected_files.extend(actual)
@@ -135,9 +150,13 @@ def _compose_reviewed_slices(runs, state_dir):
     combined=changed(worktree,meta['base_sha'])
     if combined!=meta['expected_files'] or sorted(applied)!=meta['expected_files']:
         raise Stop('BLOCKED_RECONCILIATION','Combined batch file set differs from reviewed slices')
+    head_sha=commit_owned(worktree,meta['base_sha'],meta['scopes'])
+    if changed(worktree,meta['base_sha'])!=meta['expected_files'] or git(worktree,'status','--porcelain'):
+        raise Stop('BLOCKED_RECONCILIATION','Committed batch differs from reviewed slices')
     result={'state':'COMPOSED_LOCAL','batch_id':batch_id,'identity':identity,
             'project':meta['project'],'base_sha':meta['base_sha'],'base_branch':meta['base_branch'],
-            'branch':branch,'worktree':str(worktree),'children':meta['children'],
+            'branch':branch,'worktree':str(worktree),'repository_path':meta['repository_path'],
+            'head_sha':head_sha,'children':meta['children'],
             'combined_files':combined,'combined_fingerprint':fingerprint(worktree,meta['base_sha']),
             'model_turns':0}
     atomic_json(manifest,result)
@@ -269,6 +288,9 @@ def _review_composed_batch(config, composition, *, runtime_factory, run_id, chec
         raw=json.dumps(packet,separators=(',',':'),ensure_ascii=False)
         pending={'state':'BATCH_REVIEW_PENDING','batch_id':composition['batch_id'],
                  'composition_fingerprint':composition['combined_fingerprint'],'gate_hash':gate_hash,
+                 'base_sha':base,'head_sha':composition.get('head_sha'),
+                 'children':[{k:c[k] for k in ('run_id','contract_hash','reviewed_fingerprint')} for c in children],
+                 'integration_candidate':integration_candidate(composition,adapter),
                  'final_checks':final_receipts,'review':None,'reviewer':selection.dict(),
                  'review_worktree':str(review_dir),'review_fingerprint':review_fingerprint,
                  'usage_threads':{},'usage':usage.aggregate(),'usage_complete':False,
@@ -333,3 +355,116 @@ def load_composition(state_dir, batch_id):
     if value.get('batch_id')!=batch_id or value.get('state')!='COMPOSED_LOCAL':
         raise Stop('BLOCKED_RECONCILIATION','Invalid batch composition receipt')
     return value
+
+
+def integrate_reviewed_batch(config, composition, *, github_factory=GitHub):
+    """Explicit remote write for one already-committed, independently reviewed batch."""
+    with _worker(config['state_dir'],'batch-integrate',composition['project'],composition['batch_id'],
+                 batch_id=composition['batch_id'],worktree=composition['worktree']) as (store,rid,data):
+        result=_integrate_reviewed_batch(config,composition,github_factory=github_factory,
+                                         run_id=rid,checkpoint=lambda value:store.save(rid,value['state'],{**data,**value}))
+        store.save(rid,result['state'],{**data,**result})
+        return result
+
+
+def _integrate_reviewed_batch(config, composition, *, github_factory, run_id, checkpoint):
+    if composition.get('state')!='COMPOSED_LOCAL':
+        raise Stop('BLOCKED_BATCH','Remote integration requires completed composition')
+    if not config['integration'].get('push') or not config['integration'].get('pull_request'):
+        raise Stop('READY_LOCAL','Batch remote integration disabled by owner policy')
+    adapter=config['projects'].get(composition['project'])
+    if not adapter:
+        raise Stop('BLOCKED_BATCH','Batch project is not configured')
+    wt=Path(composition['worktree'])
+    base=composition['base_sha']; head=composition.get('head_sha')
+    if not wt.is_dir() or not head or git(wt,'rev-parse','HEAD')!=head or git(wt,'status','--porcelain'):
+        raise Stop('BLOCKED_RECONCILIATION','Batch commit/worktree is unavailable or dirty')
+    if fingerprint(wt,base)!=composition['combined_fingerprint'] or changed(wt,base)!=composition['combined_files']:
+        raise Stop('BLOCKED_RECONCILIATION','Composed batch differs from the reviewed fingerprint')
+    root=Path(config['state_dir']).resolve()/'batches'/composition['batch_id']
+    review_path=root/'integration.json'
+    if not review_path.is_file():
+        raise Stop('BLOCKED_BATCH','Fresh batch integration review is missing')
+    review=json.loads(review_path.read_text())
+    names=list(dict.fromkeys(adapter.get('final_checks',[])))
+    checks=adapter.get('checks',{})
+    gate_hash=digest({'policy_version':config.get('policy_version'),
+                      'profiles':config.get('profiles'),
+                      'final_checks':[(name,checks.get(name)) for name in names]})
+    if (review.get('state')!='BATCH_READY_LOCAL' or review.get('review')!='PASS' or
+        review.get('composition_fingerprint')!=composition['combined_fingerprint'] or
+        review.get('gate_hash')!=gate_hash or review.get('head_sha')!=head or
+        any(row.get('exit_code')!=0 for row in review.get('final_checks',[])) or
+        [row.get('check') for row in review.get('final_checks',[])]!=names):
+        raise Stop('BLOCKED_RECONCILIATION','Batch review/check receipt does not match current commit')
+    remote=git(wt,'remote','get-url','origin')
+    if not adapter.get('fixture') and repository_id(remote)!=adapter.get('repository','').lower():
+        raise Stop('BLOCKED_REPOSITORY','Batch origin differs from configured GitHub repository')
+    candidate=integration_candidate(composition,adapter)
+    approval=adapter.get('batch_integration_approvals',{}).get(composition['batch_id'],{})
+    if review.get('integration_candidate')!=candidate or any(approval.get(k)!=v for k,v in candidate.items()):
+        raise Stop('NATIVE_HANDOFF','Batch remote write needs exact reviewed composition, triggers and owner authority approval')
+    evidence=dict(approval,checks_passed=True,review_passed=True,reviewed_sha=head,
+                  head_sha=head,reviewed_base=base,base_sha=base)
+    integration_gate(config['integration'],evidence)
+    current=git(wt,'ls-remote','origin','refs/heads/'+composition['base_branch']).split()
+    if not current or current[0]!=base:
+        raise Stop('NATIVE_HANDOFF','Remote base changed after batch review')
+    branch=composition['branch']
+    if not branch.startswith('codex/factory-batch-'):
+        raise Stop('BLOCKED_RECONCILIATION','Batch branch identity changed')
+    gh=github_factory(adapter['repository'],adapter.get('allow_gh',False))
+    receipt=root/'batch-remote.json'
+    identity={'batch_id':composition['batch_id'],'base_sha':base,'head_sha':head,
+              'combined_fingerprint':composition['combined_fingerprint'],
+              'gate_hash':gate_hash,'approval_hash':digest(approval)}
+    if receipt.exists():
+        saved=json.loads(receipt.read_text())
+        if saved.get('identity')!=identity:
+            raise Stop('BLOCKED_RECONCILIATION','Saved batch remote intent changed')
+    else:
+        saved={'state':'BATCH_REMOTE_PENDING','identity':identity,'run_id':run_id,
+               'batch_id':composition['batch_id'],'branch':branch,'base_branch':composition['base_branch'],
+               'children':review['children'],'final_checks':review['final_checks'],
+               'review':review['review'],'usage':review.get('usage'),
+               'review_model_turns':review.get('model_turns'),'model_turns':0}
+        atomic_json(receipt,saved);checkpoint(saved)
+    remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+    if remote_head and remote_head[0]!=head:
+        raise Stop('BLOCKED_RECONCILIATION','Remote batch branch differs; no force push')
+    if saved['state']=='BATCH_PR_OPENED':
+        observed=gh.find_pr(branch)
+        if (not remote_head or not observed or observed!=saved.get('pr') or
+            observed.get('state')!='OPEN' or observed.get('headRefOid')!=head or
+            observed.get('baseRefName')!=composition['base_branch'] or observed.get('isDraft') is not True):
+            raise Stop('BLOCKED_RECONCILIATION','Completed batch PR no longer matches reviewed receipt')
+        return saved
+    if not remote_head:
+        try:
+            command(['git','-c','core.hooksPath=/dev/null','-C',str(wt),'push','--set-upstream','origin',branch],timeout=90)
+        except Stop:
+            # A lost acknowledgement can still mean the push succeeded.
+            remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+            if not remote_head or remote_head[0]!=head:
+                raise Stop('BLOCKED_RECONCILIATION','Batch push not confirmed; intent preserved for reconciliation')
+    remote_head=git(wt,'ls-remote','origin','refs/heads/'+branch).split()
+    if not remote_head or remote_head[0]!=head:
+        raise Stop('BLOCKED_RECONCILIATION','Batch remote head not confirmed')
+    saved['state']='BATCH_BRANCH_PUSHED';atomic_json(receipt,saved);checkpoint(saved)
+    body=root/'pr-body.md'
+    body.write_text(f'Reviewed Factory batch `{composition["batch_id"]}` with {len(composition["children"])} disjoint slices.\n\n'
+                    f'Base: `{base}`. Head: `{head}`. Final checks and fresh integration review: PASS.\n\n'
+                    'Local receipt: `batch-remote.json`. No merge or deploy authorization.\n')
+    pr=gh.ensure_pr(branch,composition['base_branch'],body,
+                    'Integrate reviewed batch '+composition['batch_id'],wt)
+    observed=gh.find_pr(branch)
+    latest_base=git(wt,'ls-remote','origin','refs/heads/'+composition['base_branch']).split()
+    if (not latest_base or latest_base[0]!=base or not observed or observed.get('state')!='OPEN' or
+        observed.get('isDraft') is not True or
+        observed.get('baseRefName')!=composition['base_branch'] or observed.get('headRefOid')!=head or
+        observed.get('url')!=pr.get('url')):
+        raise Stop('BLOCKED_RECONCILIATION','Draft batch PR/base not confirmed at reviewed head')
+    saved.update(state='BATCH_PR_OPENED',pr=observed,remote_head=head,
+                 native_attachment_required=observed['url'])
+    atomic_json(receipt,saved);checkpoint(saved)
+    return saved
