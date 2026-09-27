@@ -52,6 +52,7 @@ fixture. Both commands consume your Codex allowance on their first run.
 ```sh
 ./factory status
 ./factory report
+./factory report <run-id> --summary
 ./factory pause <run-id>
 ./factory resume <run-id>
 ```

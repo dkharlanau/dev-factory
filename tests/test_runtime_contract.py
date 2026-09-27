@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import pytest
 from devfactory.runtime import Runtime,SDK_VERSION,RUNTIME_VERSION,verify_versions,ALLOWED_METHODS,BASE_OVERRIDES
-from devfactory.cli import parser,main
+from devfactory.cli import parser,main,summarize_run
 from devfactory.benchmark import benchmark
 from devfactory.repository import review_snapshot,fingerprint,git
 from devfactory.policy import Stop
@@ -72,8 +72,20 @@ def test_manifest_and_skill():
 @pytest.mark.parametrize('argv',[['doctor'],['doctor','--live'],['models'],['prep','voice-lab'],['plan','voice-lab'],
  ['compile','voice-lab','--max-tasks','10'],['run','demo','--max-tasks','1'],
  ['batch','a','b'],['batch-review','0123456789abcdef'],['batch-integrate','0123456789abcdef'],
- ['status'],['pause','id'],['resume','id'],['report'],['benchmark'],['benchmark','--live']])
+ ['status'],['pause','id'],['resume','id'],['report'],['report','run-1','--summary'],['benchmark'],['benchmark','--live']])
 def test_cli_schema(argv): assert parser().parse_args(argv).command==argv[0]
+
+
+def test_report_summary_keeps_latest_check_and_omits_turn_history():
+    run={'id':'run-1','project':'voice-lab','state':'READY_LOCAL','data':{
+        'task_id':'task-1','base_sha':'base','head_sha':'head','review':'PASS',
+        'turns':[{'packet':'large private context'}],
+        'tests':[{'check':'check','exit_code':1,'stage':'final'},
+                 {'check':'check','exit_code':0,'stage':'final'}]}}
+    summary=summarize_run(run)
+    assert summary['latest_checks']['check']=={'exit_code':0,'stage':'final'}
+    assert summary['failed_checks_seen']==['check']
+    assert 'turns' not in summary and 'packet' not in json.dumps(summary)
 
 
 def test_offline_benchmark_never_calls_runtime(cfg,monkeypatch):

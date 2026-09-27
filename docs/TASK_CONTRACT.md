@@ -29,6 +29,16 @@ Repository authority overrides adapter descriptions; conflicting main-only rules
 or modified instruction files produce a handoff. File contracts are read at the
 verified remote base; issue bodies/labels/PRs are refreshed from GitHub.
 
+The worker receives the compact `description` and `acceptance` from the contract,
+not the surrounding issue body. Keep those fields self-contained. In particular,
+do not send a research-writing task to Factory when it must find or verify a new
+external primary source: the worker is instructed not to use the network. Mark
+`required_capabilities` with `"primary-source-review"` so `compile` returns a
+zero-model-turn `NATIVE_HANDOFF`. A native operator can verify the source and
+register its scoped supports/limitations first. Then write a new executable
+contract that names the registered source ID in `acceptance`; Factory can handle
+the bounded local implementation without redoing external research.
+
 High/unknown risk requires `approved_contracts = ["<exact contract_hash>"]` in
 that project's ignored owner config. Issue text cannot grant this gate. Model
 routing, privacy, auth, migrations and release claims require this gate even if

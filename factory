@@ -3,4 +3,7 @@
 FACTORY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export FACTORY_ROOT
 export PYTHONPATH="$FACTORY_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+# Factory does not use Pydantic plugins. Avoid scanning every installed
+# distribution at SDK import time; keep an explicit caller override.
+export PYDANTIC_DISABLE_PLUGINS="${PYDANTIC_DISABLE_PLUGINS-__all__}"
 exec "$FACTORY_ROOT/.venv/bin/python" -m devfactory.cli "$@"

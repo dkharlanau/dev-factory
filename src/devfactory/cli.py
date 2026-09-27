@@ -29,7 +29,10 @@ def parser():
         cmd=sub.add_parser(name); cmd.add_argument('project')
         if name=='run': cmd.add_argument('--max-tasks',type=int,default=1)
         if name=='compile': cmd.add_argument('--max-tasks',type=int,default=50)
-    sub.add_parser('status'); sub.add_parser('report')
+    sub.add_parser('status')
+    report=sub.add_parser('report')
+    report.add_argument('run_id',nargs='?')
+    report.add_argument('--summary',action='store_true',help='Show compact receipt fields without turn histories')
     for name in ('pause','resume'):
         cmd=sub.add_parser(name)
         cmd.add_argument('run_id')
@@ -44,6 +47,39 @@ def parser():
     return p
 
 
+def summarize_run(run):
+    data=run['data']
+    checks={}
+    failed=[]
+    for check in data.get('tests',[]):
+        name=check.get('check')
+        if not name: continue
+        checks[name]={'exit_code':check.get('exit_code'),'stage':check.get('stage')}
+        if check.get('exit_code') not in (None,0) and name not in failed:
+            failed.append(name)
+    return {
+        'run_id':run['id'],
+        'project':run['project'],
+        'state':run['state'],
+        'task_id':data.get('task_id'),
+        'base_sha':data.get('base_sha'),
+        'head_sha':data.get('head_sha'),
+        'changed_file_count':len(data.get('changed_files',[])),
+        'latest_checks':checks,
+        'failed_checks_seen':failed,
+        'review':data.get('review'),
+        'disposition':data.get('disposition'),
+        'reason':data.get('reason'),
+        'next_step':data.get('next_step'),
+        'reviewed_sha':data.get('reviewed_sha'),
+        'validated_fingerprint':data.get('validated_fingerprint'),
+        'reviewed_fingerprint':data.get('reviewed_fingerprint'),
+        'wall_seconds':data.get('wall_seconds'),
+        'usage':data.get('usage'),
+        'worktree':data.get('worktree'),
+    }
+
+
 def main(argv=None):
     args=parser().parse_args(argv)
     try:
@@ -54,7 +90,7 @@ def main(argv=None):
             result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
                     'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
                     'batch <run-id> <run-id> [...]','batch-review <batch-id>','batch-integrate <batch-id>',
-                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report','benchmark [--live]'],
+                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report [run-id] [--summary]','benchmark [--live]'],
                     'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -146,7 +182,12 @@ def main(argv=None):
             try:
                 if args.command=='pause':
                     r=store.pause(args.run_id); result={'run_id':r['id'],'state':r['state'],'pause_requested':r['state'] not in TERMINAL}
-                elif args.command=='report': result=store.all()
+                elif args.command=='report':
+                    result=store.get(args.run_id) if args.run_id else store.all()
+                    if args.summary:
+                        rows=result if isinstance(result,list) else [result]
+                        summaries=[summarize_run(row) for row in rows]
+                        result=summaries if isinstance(result,list) else summaries[0]
                 else:
                     result=[{'run_id':r['id'],'project':r['project'],'state':r['state'],'updated':r['updated'],
                              'worktree':r['data'].get('worktree'),'phase':r['data'].get('phase')} for r in store.all()]
