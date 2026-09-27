@@ -53,7 +53,7 @@ def validate_reviewed_slices(runs):
 def compose_reviewed_slices(runs, state_dir):
     meta=validate_reviewed_slices(runs)
     identity={'project':meta['project'],'base_sha':meta['base_sha'],
-              'children':[(c['run_id'],c['contract_hash'],c['reviewed_fingerprint']) for c in meta['children']]}
+              'children':[[c['run_id'],c['contract_hash'],c['reviewed_fingerprint']] for c in meta['children']]}
     batch_id=digest(identity)[:16]
     root=Path(state_dir).resolve()/'batches'/batch_id
     worktree=root/'worktree';manifest=root/'composition.json'
