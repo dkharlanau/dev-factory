@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .policy import Stop, scopes_overlap
-from .repository import apply_delta, changed, create_worktree, fingerprint
+from .policy import Stop, Usage, check_quota, choose_model, scopes_overlap
+from .repository import apply_delta, changed, create_worktree, fingerprint, review_snapshot
+from .runtime import Runtime
+from .runner import SCHEMA, WORKER_RULES, failure_excerpt, redact
 from .state import atomic_json, digest
 
 
@@ -43,9 +45,13 @@ def validate_reviewed_slices(runs):
         if any(not _inside(name,scopes) for name in actual):
             raise Stop('BLOCKED_SCOPE','Reviewed slice contains files outside its declared scope')
         seen_scopes.extend(scopes);expected_files.extend(actual)
+        contract=d.get('task_contract')
+        if not isinstance(contract,dict) or set(contract)!={'id','description','acceptance','paths'}:
+            raise Stop('BLOCKED_BATCH','Reviewed slice lacks the immutable model-facing task contract')
         children.append({'run_id':run['id'],'task_id':d['task_id'],'contract_hash':d['contract_hash'],
-                         'reviewed_fingerprint':d['reviewed_fingerprint'],'worktree':str(wt),
-                         'scopes':scopes,'files':actual})
+                         'task_contract':contract,'reviewed_fingerprint':d['reviewed_fingerprint'],
+                         'worktree':str(wt),'scopes':scopes,'files':actual,'risk':d.get('risk'),
+                         'profile':d.get('profile'),'repairs':d.get('repairs',0),'escalations':d.get('escalations',0)})
     return {'project':project,'base_sha':base,'base_branch':base_branch,'repository_path':str(repo_path),
             'children':children,'expected_files':sorted(expected_files),'scopes':seen_scopes}
 
@@ -87,3 +93,97 @@ def compose_reviewed_slices(runs, state_dir):
             'model_turns':0}
     atomic_json(manifest,result)
     return result
+
+
+
+def review_composed_batch(config, composition, *, runtime_factory=Runtime):
+    """Run combined final checks and one fresh interaction review. No remote writes."""
+    if composition.get('state')!='COMPOSED_LOCAL':
+        raise Stop('BLOCKED_BATCH','Integration review requires a completed local composition')
+    project=composition['project']
+    if project not in config['projects']:
+        raise Stop('BLOCKED_BATCH','Batch project is not configured')
+    adapter=config['projects'][project]
+    wt=Path(composition['worktree'])
+    base=composition['base_sha']
+    if not wt.is_dir() or fingerprint(wt,base)!=composition['combined_fingerprint']:
+        raise Stop('BLOCKED_RECONCILIATION','Composed batch worktree changed before integration review')
+    root=Path(config['state_dir']).resolve()/'batches'/composition['batch_id']
+    receipt=root/'integration.json'
+    if receipt.exists():
+        saved=json.loads(receipt.read_text())
+        if saved.get('composition_fingerprint')!=composition['combined_fingerprint']:
+            raise Stop('BLOCKED_RECONCILIATION','Saved batch integration receipt belongs to another composition')
+        if fingerprint(wt,base)!=saved.get('composition_fingerprint'):
+            raise Stop('BLOCKED_RECONCILIATION','Batch worktree changed after integration receipt')
+        return saved
+
+    names=list(dict.fromkeys(adapter.get('final_checks',[])))
+    checks=adapter.get('checks',{})
+    if not names or any(name not in checks for name in names):
+        raise Stop('BLOCKED_POLICY','Batch integration requires configured final checks')
+    deadline=__import__('time').time()+config['budget']['deadline_seconds']
+    final_receipts=[]
+    with runtime_factory(wt) as rt:
+        for name in names:
+            before=fingerprint(wt,base)
+            result=rt.command(wt,checks[name],timeout=min(600,max(1,deadline-__import__('time').time())))
+            row={'check':name,'exit_code':result.get('exitCode'),
+                 'failure_excerpt':failure_excerpt(result)}
+            final_receipts.append(row)
+            if fingerprint(wt,base)!=before:
+                raise Stop('BLOCKED_VALIDATION','Combined final validation changed source files')
+            if result.get('exitCode')!=0:
+                out={'state':'BLOCKED_BATCH_VALIDATION','batch_id':composition['batch_id'],
+                     'composition_fingerprint':composition['combined_fingerprint'],
+                     'final_checks':final_receipts,'review':None,'model_turns':0}
+                atomic_json(receipt,out)
+                return out
+
+        budget=config['budget']
+        quota=rt.quota();check_quota(quota,budget)
+        children=composition['children']
+        deep=any(c.get('profile')=='deep' or c.get('risk')=='high' or
+                 c.get('repairs',0)>0 or c.get('escalations',0)>0 for c in children)
+        profile='deep' if deep else 'review'
+        selection=choose_model(profile,config,rt.catalog,rt.native,high_risk=deep)
+        review_dir=root/'integration-review'
+        before_review=fingerprint(wt,base)
+        review_snapshot(wt,review_dir,base)
+        review_fingerprint=fingerprint(review_dir,base)
+        instructions=WORKER_RULES+(
+            '\nRole: independently review the combined diff against every supplied task acceptance. '
+            'Do not edit. Use the supplied final-check evidence; rerun a passing check only for a '
+            'specific unresolved concern. Report concrete file/line findings.\n')
+        tid=rt.start(review_dir,selection,instructions,read_only=False,resume=None)
+        usage=Usage()
+        packet={'role':'review','batch':composition['batch_id'],'base_sha':base,
+                'tasks':[c['task_contract'] for c in children],
+                'combined_files':composition['combined_files'],
+                'final_checks':final_receipts,'diff_command':['git','diff',base]}
+        raw=json.dumps(packet,separators=(',',':'),ensure_ascii=False)
+        def event(method,payload):
+            if method=='thread/tokenUsage/updated':
+                usage.observe(payload['threadId'],payload['tokenUsage'])
+        result=rt.turn(tid,raw,selection,deadline=deadline,on_event=event,
+                       output_schema=SCHEMA,external=True)
+        if result.get('usage'): usage.observe(tid,result['usage'])
+        if result['status']!='completed':
+            raise Stop('BLOCKED_RUNTIME','Batch integration review turn did not complete')
+        try: verdict=json.loads(result.get('final') or '')
+        except ValueError: raise Stop('BLOCKED_RESULT','Batch reviewer did not return structured verdict')
+        if not isinstance(verdict,dict) or verdict.get('verdict') not in ('PASS','REPAIR','BLOCKED'):
+            raise Stop('BLOCKED_RESULT','Invalid batch reviewer verdict')
+        if fingerprint(review_dir,base)!=review_fingerprint:
+            raise Stop('BLOCKED_REVIEW','Batch reviewer modified its isolated snapshot')
+        if fingerprint(wt,base)!=before_review:
+            raise Stop('BLOCKED_RECONCILIATION','Composed batch changed during integration review')
+        passed=verdict['verdict']=='PASS' and not verdict.get('findings')
+        out={'state':'BATCH_READY_LOCAL' if passed else 'BLOCKED_BATCH_REVIEW',
+             'batch_id':composition['batch_id'],'composition_fingerprint':composition['combined_fingerprint'],
+             'final_checks':final_receipts,'review':verdict['verdict'],
+             'review_summary':redact(str(verdict.get('summary','')))[:1200],
+             'findings':verdict.get('findings',[]),'reviewer':selection.dict(),
+             'usage':usage.aggregate(),'model_turns':1,'packet_utf8_bytes':len(raw.encode())}
+        atomic_json(receipt,out)
+        return out

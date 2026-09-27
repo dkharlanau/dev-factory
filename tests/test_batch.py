@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from devfactory.batch import compose_reviewed_slices, validate_reviewed_slices
+from devfactory.batch import compose_reviewed_slices, review_composed_batch, validate_reviewed_slices
 from devfactory.fixture import TASK
 from devfactory.policy import Stop
 from devfactory.repository import git
@@ -49,6 +49,43 @@ def test_compose_reviewed_slices_is_exact_and_idempotent(cfg):
     assert check.returncode==0,check.stderr
     repeat=compose_reviewed_slices(runs,cfg['state_dir'])
     assert repeat==batch and len(FakeRuntime.turns)==turns
+
+
+def test_integrated_batch_runs_combined_checks_and_one_fresh_review(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    cfg['projects']['demo']['final_checks']=['unit','note']
+    turns=len(FakeRuntime.turns)
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BATCH_READY_LOCAL' and result['review']=='PASS'
+    assert [x['check'] for x in result['final_checks']]==['unit','note']
+    assert len(FakeRuntime.turns)==turns+1 and result['model_turns']==1
+    packet=FakeRuntime.turns[-1]['packet']
+    assert packet['batch']==batch['batch_id'] and len(packet['tasks'])==2
+    repeat=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert repeat==result and len(FakeRuntime.turns)==turns+1
+
+
+def test_integrated_batch_validation_failure_spends_no_review_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    cfg['projects']['demo']['checks']['fail']=[os.sys.executable,'-c','raise SystemExit(2)']
+    cfg['projects']['demo']['final_checks']=['fail']
+    turns=len(FakeRuntime.turns)
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BLOCKED_BATCH_VALIDATION' and result['model_turns']==0
+    assert len(FakeRuntime.turns)==turns
+    assert review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)==result
+
+
+def test_integrated_batch_review_repair_is_blocked_not_auto_repaired(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    FakeRuntime.outcomes=[{'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'interaction defect'}],
+                           'summary':'needs repair'}]
+    result=review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert result['state']=='BLOCKED_BATCH_REVIEW' and result['review']=='REPAIR'
+    assert result['model_turns']==1
 
 
 def test_batch_refuses_overlap(cfg):

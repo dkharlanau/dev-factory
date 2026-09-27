@@ -64,8 +64,11 @@ Batch composition is a separate deterministic layer over completed reviewed slic
 It requires one exact base and pairwise-disjoint scopes, rechecks each reviewed
 fingerprint, applies exact tracked/untracked deltas into a new Factory-owned worktree,
 and records an idempotent composition receipt. It performs no model or remote call.
-A composed worktree is not ready for integration until combined final validation and a
-fresh integration review are implemented and pass.
+A composed worktree is not ready until combined broad final validation passes and one
+fresh integration reviewer checks the combined diff against every child acceptance.
+That integration gate is deliberately non-repairing in v1: a defect is persisted as a
+blocked receipt instead of allowing a new model to mutate already-reviewed slices.
+Remote batch PR integration remains a later explicit gate.
 
 Remote integration is off. The opt-in adapter supports draft PR creation with
 read-before-retry reconciliation; it has only offline/simulated GitHub write tests.

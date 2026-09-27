@@ -165,6 +165,7 @@ class Runner:
             task_turns = min(self.config['budget']['max_turns'], remaining_turns)
             executed += 1
             data = {'project':project,'task_id':plan['task']['id'],'contract_hash':plan['contract_hash'],
+                    'task_contract':{k:plan['task'][k] for k in ('id','description','acceptance','paths')},
                     'task_source':plan['task']['source'],'task_category':plan['task'].get('category','unknown'),
                     'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],
                     'base_branch':plan['base_branch'],'repository':plan['repository'],
