@@ -1,6 +1,6 @@
 # Verification performed
 
-Current offline suite: **100 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Current offline suite: **101 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.
