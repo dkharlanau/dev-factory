@@ -12,6 +12,23 @@ def test_unavailable_model_and_effort(cfg):
     assert s.requested_model=='fixture-model' and s.requested_effort=='medium'
     assert 'unavailable' in s.reason
 
+def test_model_ladder_uses_first_available_candidate(cfg):
+    cfg['profiles']['fast']={'models':['missing','fixture-model','native'],'effort':'low'}
+    s=choose_model('fast',cfg,CATALOG,{'model':'fixture-model'})
+    assert s.requested_model=='fixture-model' and s.requested_effort=='low'
+    assert 'first available' in s.reason
+
+def test_legacy_scalar_model_override_replaces_inherited_ladder(tmp_path):
+    from devfactory.config import load
+    local=tmp_path/'factory.local.toml'
+    local.write_text('[profiles.fast]\nmodel = "native"\neffort = "medium"\n')
+    loaded=load(tmp_path,local)
+    assert loaded['profiles']['fast']['model']=='native'
+    assert 'models' not in loaded['profiles']['fast']
+    local.write_text('[profiles.fast]\nmodel = "native"\nmodels = ["native"]\n')
+    with pytest.raises(Stop,match='both model and models'): load(tmp_path,local)
+
+
 def test_native_baseline_keeps_effort(cfg):
     s=choose_model('fast',cfg,CATALOG,{'model':'fixture-model'},baseline=True)
     assert s.requested_model is None and s.requested_effort is None
@@ -48,10 +65,14 @@ def test_usage_cumulative_duplicate_nested_and_missing():
     u.totals['b']={}; assert u.aggregate()['totalTokens'] is None
     assert Usage().aggregate()['inputTokens'] is None
 
-@pytest.mark.parametrize('kw,state',[(dict(deadline=0,turns=0,tokens=0),'PAUSED_DEADLINE'),
- (dict(deadline=9999999999,turns=6,tokens=0),'PAUSED_BUDGET'),
- (dict(deadline=9999999999,turns=0,tokens=150000),'PAUSED_BUDGET')])
-def test_budgets(cfg,kw,state):
+@pytest.mark.parametrize('kind,state',[('deadline','PAUSED_DEADLINE'),
+                                                ('turns','PAUSED_BUDGET'),
+                                                ('tokens','PAUSED_BUDGET')])
+def test_budgets(cfg,kind,state):
+    kw=dict(deadline=9999999999,turns=0,tokens=0)
+    if kind=='deadline': kw['deadline']=0
+    elif kind=='turns': kw['turns']=cfg['budget']['max_turns']
+    else: kw['tokens']=cfg['budget']['soft_tokens']
     with pytest.raises(Stop) as e: check_budget(cfg['budget'],**kw)
     assert e.value.state==state
 

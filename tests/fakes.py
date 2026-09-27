@@ -22,14 +22,24 @@ class FakeRuntime:
     def inventory(self): return {'versions':{'runtime':'FAKE'}}
     def start(self,cwd,selection,instructions,read_only=False,resume=None):
         tid=resume or 'thread-'+str(len(self.history)+1)
-        self.history.append({'id':tid,'read_only':read_only,'resume':resume,'instructions':instructions})
+        self.history.append({'id':tid,'read_only':read_only,'resume':resume,'instructions':instructions,
+                             'profile':selection.profile,'requested_model':selection.requested_model,
+                             'requested_effort':selection.requested_effort})
         return tid
     def turn(self,tid,text,selection,*,on_start,on_event,**kwargs):
         packet=json.loads(text); role=packet['role']
-        self.turns.append({'thread':tid,'packet':packet})
+        self.turns.append({'thread':tid,'packet':packet,'profile':selection.profile,
+                           'requested_model':selection.requested_model,'requested_effort':selection.requested_effort})
         turn='turn-'+str(len(self.turns)); on_start(tid,turn)
         if role!='review':
-            (self.cwd/'clamp.py').write_text('def clamp(value, low, high):\n    if low > high: raise ValueError("bounds")\n    return max(low,min(value,high))\n')
+            tasks=packet.get('tasks') or [packet.get('task') or {'paths':['clamp.py']}]
+            paths=list(dict.fromkeys(p for task in tasks for p in (task.get('paths') or [])))
+            for path in paths:
+                target=self.cwd/path; target.parent.mkdir(parents=True,exist_ok=True)
+                if path=='clamp.py':
+                    target.write_text('def clamp(value, low, high):\n    if low > high: raise ValueError("bounds")\n    return max(low,min(value,high))\n')
+                else:
+                    target.write_text('fixture change\n')
         usage={'total':{'inputTokens':100,'cachedInputTokens':20,'outputTokens':30,'reasoningOutputTokens':10,'totalTokens':130},'modelContextWindow':1000}
         on_event('thread/tokenUsage/updated',{'threadId':tid,'tokenUsage':usage})
         verdict=self.outcomes.pop(0) if self.outcomes else {'verdict':'PASS','findings':[],'summary':'fixture'}

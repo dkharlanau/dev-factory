@@ -33,16 +33,34 @@ def choose_model(profile, config, catalog, native, *, baseline=False, high_risk=
     if baseline:
         return Selection(profile, None, None, "Native model and effort; no routing override", config["policy_version"])
     p = config["profiles"][profile]
-    requested = p.get("model", "native")
-    model = native_model if requested == "native" else requested
-    reason = "Owner profile; native model preserved pending comparative evidence"
-    if requested != "native":
-        reason = "Explicit owner mapping, verified against live catalog; efficiency unproven"
-    if model not in available:
-        model, reason = native_model, "Configured model unavailable; verified native fallback"
-    info = available[model]
-    if "text" not in info.get("inputModalities", []):
-        raise Stop("NATIVE_HANDOFF", "Selected model does not declare text input support")
+    configured = p.get("models")
+    if configured is None:
+        configured = [p.get("model", "native")]
+    if not isinstance(configured, list) or not configured or not all(isinstance(x, str) and x for x in configured):
+        raise Stop("BLOCKED_POLICY", f"Profile {profile} must define model or a non-empty models list")
+    skipped = []
+    model = None
+    for candidate in configured:
+        resolved = native_model if candidate == "native" else candidate
+        info = available.get(resolved)
+        if not info or "text" not in info.get("inputModalities", []):
+            skipped.append(candidate)
+            continue
+        model = resolved
+        break
+    if model is None:
+        model = native_model
+        info = available[model]
+        if "text" not in info.get("inputModalities", []):
+            raise Stop("NATIVE_HANDOFF", "Verified native/default model does not declare text input support")
+        reason = "Configured model ladder unavailable; verified native fallback"
+    elif configured[0] == "native" and model == native_model:
+        info = available[model]
+        reason = "Owner profile preserves verified native model"
+    else:
+        info = available[model]
+        reason = ("Owner model ladder selected first available candidate after unavailable entries"
+                  if skipped else "Owner model ladder selected by task/role profile; verified against live catalog")
     effort = "high" if profile == "review" and high_risk else p.get("effort")
     efforts = [e["reasoningEffort"] for e in info["supportedReasoningEfforts"]]
     if effort not in efforts:
@@ -130,6 +148,14 @@ class Usage:
         return {k: (sum(t[k] for t in self.totals.values())
                     if self.totals and all(t.get(k) is not None for t in self.totals.values())
                     else None) for k in TOKEN_FIELDS}
+
+
+def usage_efficiency(total):
+    """Derived observability only; never infer price or context occupancy."""
+    inputs, cached = total.get("inputTokens"), total.get("cachedInputTokens")
+    uncached = max(0, inputs - cached) if inputs is not None and cached is not None else None
+    ratio = cached / inputs if inputs not in (None, 0) and cached is not None else None
+    return {"uncached_input_tokens": uncached, "cached_input_ratio": ratio}
 
 
 INJECTION = re.compile(

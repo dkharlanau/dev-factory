@@ -107,7 +107,9 @@ def commit_owned(path, base, allowed):
     if any(not any(n == a or n.startswith(a.rstrip('/')+'/') for a in allowed) for n in names):
         raise Stop('BLOCKED_SCOPE','Worker changed files outside task paths')
     git(path,'add','--',*names)
-    git(path,'commit','-m','DevFactory: complete bounded task')
+    # Controller-owned commits must not depend on the operator's global Git identity.
+    git(path,'-c','user.name=DevFactory','-c','user.email=devfactory@localhost',
+        'commit','-m','DevFactory: complete bounded task')
     return git(path,'rev-parse','HEAD')
 
 

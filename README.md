@@ -1,15 +1,18 @@
 # DevFactory
 
 A local foreground control layer over the official Codex Python SDK. It selects
-verified model/effort profiles, runs one bounded task at a time, preserves work,
-and leaves inspectable test, review and usage receipts. Models run remotely;
+verified model/effort profiles, clusters compatible backlog contracts into bounded
+micro-batches, preserves work, and leaves compact test, review and usage receipts. Models run remotely;
 Git, builds, tests and the supervisor run on your Mac.
 
-**Evaluated control layer, not a proven efficiency improvement.** Five paired real
-historical tasks passed behavioral checks in both workflows; current Factory budgets
-allowed 2/5 complete reviewed cycles versus 5/5 direct native cycles. See the
-[evaluation](docs/benchmarks/RESULTS.md). Native model mappings and autocompaction
-remain the defaults. Product execution requires an explicit command.
+**Evaluated control layer, with a new cost-aware routing policy that still requires
+live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
+the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
+Version 3.1 keeps native autocompaction and live-catalog routing, adds deterministic repo prep, co-change-aware batching, one-snapshot
+micro-batching, task-local repository navigation, failure-only logs, delta repair
+packets and staged validation, and lets a started batch finish its bounded quality gate.
+See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
+explicit command.
 
 ## Install and check
 
@@ -98,11 +101,11 @@ paths. The existing local installation already contains the three inspected path
 Absolute paths, receipts, logs, SQLite and worktrees are ignored by Git.
 
 ```sh
-./factory plan vedokrok
-./factory plan ptichi-site
+./factory prep voice-lab                 # zero model turns; inspect repo hygiene/profile
+./factory compile voice-lab --max-tasks 50  # zero model turns; preview deterministic batches
 ./factory plan voice-lab
-# Explicitly authorizes one local product cycle within configured policy:
-./factory run <project> --max-tasks 1
+# Explicitly authorizes local product work within configured policy:
+./factory run voice-lab --max-tasks 8
 ```
 
 A plan checks realpath, remote identity, HEAD, current remote default SHA, dirty
@@ -129,21 +132,42 @@ fallback for the controller. No functioning route means a precise blocker.
 
 Defaults are in `src/devfactory/defaults.toml`; ignored local config can override
 profile models/efforts, named checks, reserves and execution limits. Every model
-mapping is validated against the live catalog. Unsupported effort falls back to
-the catalog default; unavailable model falls back to verified native/default.
+candidate is validated against the live catalog. Unsupported effort falls back to
+the catalog default; an unavailable ladder falls back to verified native/default.
 Unknown quota pauses. Shared quota exhaustion never triggers model switching.
 
-One worker, six turns, 30-minute foreground deadline, 150,000 observable-token
-**soft** budget, two repair rounds, one escalation and 10% allowance reserve are
-starting defaults. There is no hard in-flight token cap. A turn can overshoot the
-soft budget; Factory stops issuing subsequent turns. Current context utilization,
-serving model without telemetry, and parent-chat usage are reported as unknown.
-Receipts include per-turn/check durations, active execution seconds excluding pauses,
-packet/instruction byte counts and soft-budget overshoot. Byte counts are not tokens.
-Missing intervening usage keeps per-role attribution unknown. Automatic Factory
-early compaction is unsupported: `context.manual_compaction=true` is rejected.
-The explicit manual adapter is available for controlled diagnostics; native
-autocompaction remains the execution policy.
+The default quality/cost ladder is: low-risk strongly verified work → GPT-6 Luna/low;
+ordinary work and clean independent review → GPT-6 Sol/medium; high-complexity work,
+high-risk review, or review after a repair/escalation → GPT-6 Astra/high. These are
+routing defaults, not a claim of measured savings, and unavailable models fall through
+the live-verified ladder.
+
+One worker, up to six turns **per task**, up to 60 turns per foreground queue,
+a 30-minute queue deadline, 500,000 observable-token **soft queue envelope**, two
+repair rounds, one escalation and 10% allowance reserve are starting defaults.
+A queue continues only across disjoint declared file scopes; overlap stops before
+another model turn because separately reviewed worktrees are not an implicit merge.
+A later `run` skips matching terminal receipts at zero model cost and continues to the
+next backlog item; `--max-tasks` therefore limits new work, not already completed work. With
+`finish_started_task=true`, the soft token envelope stops additional queue work but
+does not strand an already-started task before its bounded review/repair gate. Deadline,
+turn count and quota remain hard dispatch gates. Repair turns continue directly in the
+already-attached builder thread and send only new delta evidence (findings, validation,
+changed files) rather than replaying the immutable contract; `thread/resume` is reserved
+for actual controller/runtime recovery. Model-facing task
+packets contain only the implementation contract fields needed by the worker; controller
+routing metadata and unrelated backlog authority stay out of model context. Review is
+evidence-first: passing controller checks are not repeated unless the reviewer has a
+specific unresolved concern. Focused checks run before broad final checks.
+
+Current context utilization, serving model without telemetry, and parent-chat usage
+are reported as unknown. Receipts include per-turn/check durations, active execution
+seconds excluding pauses, packet/instruction byte counts, estimated repeated packet
+bytes avoided, cached-input ratio when observable, and soft-budget overshoot. Byte
+counts are not tokens and cached input is not zero-cost. Missing intervening usage
+keeps per-role attribution unknown. Automatic Factory early compaction is unsupported:
+`context.manual_compaction=true` is rejected. The explicit manual adapter is available
+for controlled diagnostics; native autocompaction remains the execution policy.
 
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction
@@ -155,15 +179,18 @@ still unverified. The parent skill attaches any created PR.
 
 ```sh
 ./factory benchmark          # offline, zero model turns
-./factory benchmark --live   # synthetic effort-profile comparison inside Factory
-.venv/bin/python scripts/evaluation/run.py  # prepare real task snapshots, zero model turns
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant native
-.venv/bin/python scripts/evaluation/run.py --live --case small --variant factory
+./factory benchmark --live   # synthetic model/effort routing comparison inside Factory
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1  # prepare, zero model turns
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant native
+.venv/bin/python scripts/evaluation/run.py --experiment policy-v2-r1 --live --case small --variant factory
+.venv/bin/python scripts/evaluation/export.py --experiment policy-v2-r1
 ```
 
-The old live fixture command runs Factory in both arms and compares effort policy.
+The live fixture command runs Factory in both arms and compares model/effort routing.
 The separate evaluation harness uses direct SDK execution for the native baseline,
-with identical pairwise source/spec/checks and isolated histories. Five pairs have
+with identical pairwise source/spec/checks and isolated histories. Each new policy or
+replicate uses an explicit experiment namespace, so historical receipts cannot be
+mistaken for current-policy evidence. Five pairs have
 run; completed-work cost savings are unproven. Read the [results and limitations](docs/benchmarks/RESULTS.md)
 and [reproduction protocol](docs/benchmarks/METHODOLOGY.md).
 See [capability matrix](docs/CAPABILITIES.md), [architecture](docs/ARCHITECTURE.md),
@@ -180,3 +207,47 @@ python3 scripts/uninstall.py
 Uninstall removes only the marked local virtual environment. Source (including
 repo skill), receipts, product work and worktrees remain recoverable. No global
 Codex setup is removed. Do not delete `.factory/worktrees` as routine cleanup.
+
+
+## Lean batch policy (v3)
+
+A foreground `run` reads GitHub/base/backlog authority once, freezes that planning snapshot, and groups
+only contiguous compatible tasks that share a context root, routing profile and risk class. Defaults cap a
+micro-batch at 4 tasks, 24 declared paths, 6 focused checks and a 12 KB model packet. Remote PR integration
+forces single-task mode so exact integration approvals remain task-bound.
+
+The worker receives a small task-local file registry, not a whole-repository map. Historical benchmark data,
+receipts, archives and generated output are cold by default and do not enter that navigation capsule unless
+the task explicitly scopes them. Successful test stdout/stderr is discarded; only failed checks receive a
+bounded redacted local log plus the smaller repair excerpt. Compatible task checks are deduplicated and broad
+final checks run once for the whole batch. Strongly verified low-risk batches use the fast review profile;
+repairs, high risk and deep work still promote review strength.
+
+Installed plugins remain deferred in child workers. Unsupported external capabilities are returned as an
+explicit native capability route instead of loading every tool definition into every coding turn.
+
+
+## Repository prep and hygiene (v3.1)
+
+Every product `run` now prepares the exact base SHA before the first model turn. This is deterministic Git
+analysis, not an AI scout. It writes an ignored local profile under `.factory/projects/<project>/repo-profile.json`
+and never edits product files.
+
+Prep measures tracked file/byte counts, root and directory width, large tracked blobs, tracked archive/build/generated
+trees, and `AGENTS.md` size/broad-read rules. Known archive/generated roots become **cold context** automatically:
+they remain in Git but disappear from normal agent navigation unless the current task explicitly targets them.
+This is the safe default form of cleanup because it speeds agent exploration without deleting history or source.
+
+Prep also derives a bounded **co-change graph** from recent Git history. Two backlog tasks from different path roots
+can share a micro-batch only when the history shows a repeated, sufficiently strong co-change relationship. Bulk
+commits are excluded from this signal. This makes batching follow the repository's real change topology rather than
+folder names alone.
+
+`factory prep <project>` exposes the profile for inspection. `factory run` refreshes it automatically, so prep is
+not a required manual phase. Destructive cleanup—deleting tracked files, rewriting history, moving source trees,
+pruning branches, or changing product instructions—remains explicit reviewed product work.
+
+`factory compile <project> --max-tasks N` is a zero-model-turn backlog compiler. It reads the current authority once,
+uses the same repo profile and batching policy, and writes a local campaign artifact showing the batch DAG-like order,
+task membership, paths, checks, risk and model profile. It is optional diagnostics; normal `run` retains the compact
+foreground loop.

@@ -25,9 +25,10 @@ def parser():
     sub=p.add_subparsers(dest='command',required=True)
     doctor=sub.add_parser('doctor'); doctor.add_argument('--live',action='store_true')
     sub.add_parser('models')
-    for name in ('plan','run'):
+    for name in ('prep','plan','run','compile'):
         cmd=sub.add_parser(name); cmd.add_argument('project')
         if name=='run': cmd.add_argument('--max-tasks',type=int,default=1)
+        if name=='compile': cmd.add_argument('--max-tasks',type=int,default=50)
     sub.add_parser('status'); sub.add_parser('report')
     for name in ('pause','resume'):
         sub.add_parser(name).add_argument('run_id')
@@ -43,9 +44,10 @@ def main(argv=None):
             raise Stop('NATIVE_HANDOFF','Factory installation root unknown; set FACTORY_ROOT or --root explicitly')
         config=load(args.root,args.config)
         if args.command=='schema':
-            result={'version':'1','commands':['doctor [--live]','models','plan <project>',
-                    'run <project> [--max-tasks N]','status','pause <run-id>','resume <run-id>',
-                    'report','benchmark [--live]'],'model_profiles':list(config['profiles']),
+            result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
+                    'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
+                    'status','pause <run-id>','resume <run-id>','report','benchmark [--live]'],
+                    'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
             from .diagnostics import doctor
@@ -58,11 +60,17 @@ def main(argv=None):
                 runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
                 try: result['live']=runner.run('smoke',max_tasks=1)
                 finally: runner.close()
-        elif args.command in ('plan','run'):
+        elif args.command in ('prep','plan','run','compile'):
             if args.project=='demo':
                 from .fixture import prepare
                 config=prepare(config)
-            if args.command=='plan':
+            if args.command=='prep':
+                from .navigation import prepare_project
+                result=prepare_project(config,args.project)
+            elif args.command=='compile':
+                from .campaign import compile_campaign
+                result=compile_campaign(config,args.project,max_tasks=args.max_tasks)
+            elif args.command=='plan':
                 from .tasks import resolve
                 result=resolve(config,args.project)
             else:

@@ -18,8 +18,6 @@ from devfactory.state import atomic_json,digest
 from devfactory.policy import Stop
 
 REPOSITORY=os.environ.get('DEVFACTORY_PRIVATE_FIXTURE_REPOSITORY', '')
-if not REPOSITORY:
-    raise RuntimeError('Set DEVFACTORY_PRIVATE_FIXTURE_REPOSITORY to a dedicated private evaluation repository')
 AREA=ROOT/'.factory/evaluation/pr-lifecycle'
 
 
@@ -28,6 +26,8 @@ def main():
     if not args.live:parser.error('--live is required for model turns and remote writes')
     if (AREA/'result.json').exists():
         print('EXISTING_EVALUATION',AREA/'result.json');return
+    if not REPOSITORY:
+        raise RuntimeError('Set DEVFACTORY_PRIVATE_FIXTURE_REPOSITORY to a dedicated private evaluation repository')
     cfg=load(ROOT);cfg['state_dir']=str(AREA)
     cfg=prepare(cfg,'pr-lifecycle');adapter=cfg['projects']['pr-lifecycle'];path=Path(adapter['path'])
     marker=AREA/'prepared.json'

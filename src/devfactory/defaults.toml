@@ -1,9 +1,11 @@
-policy_version = "1"
+policy_version = "3.1"
 
 [budget]
 deadline_seconds = 1800
 max_turns = 6
-soft_tokens = 150000
+max_queue_turns = 60
+soft_tokens = 500000
+finish_started_task = true
 repair_rounds = 2
 escalations = 1
 allowance_reserve_percent = 10
@@ -13,6 +15,27 @@ unknown_quota = "pause"
 [context]
 manual_compaction = false
 native_autocompaction = true
+navigation_files = 40
+failure_log_bytes = 12000
+cold_paths = ["archive/", "docs/archive/", "docs/benchmarks/", "docs/receipts/", ".factory/", "coverage/", "dist/", "build/"]
+
+[batching]
+enabled = true
+max_tasks = 4
+max_paths = 24
+max_checks = 6
+max_packet_bytes = 12000
+
+[hygiene]
+history_commits = 200
+max_roots_per_commit = 8
+min_cochange_commits = 2
+min_cochange_confidence = 0.35
+large_file_bytes = 1000000
+wide_directory_entries = 500
+root_entries = 40
+instruction_max_lines = 120
+instruction_max_bytes = 12000
 
 [integration]
 push = false
@@ -20,19 +43,22 @@ pull_request = false
 merge = false
 deploy = false
 
-# Preserve native model until comparative evidence supports substitutions.
-# Explicit owner mappings are checked against the live catalog.
+# Quality-first routing with a live-catalog fallback ladder.
+# Model availability is verified at runtime; quota exhaustion never triggers switching.
 [profiles.fast]
-model = "native"
+models = ["gpt-6-luna", "gpt-6-sol", "native"]
 effort = "low"
 [profiles.standard]
-model = "native"
+models = ["gpt-6-sol", "gpt-6-astra", "native"]
 effort = "medium"
 [profiles.deep]
-model = "native"
+models = ["gpt-6-astra", "gpt-6-sol", "native"]
 effort = "high"
+[profiles.review_fast]
+models = ["gpt-6-luna", "gpt-6-sol", "native"]
+effort = "low"
 [profiles.review]
-model = "native"
+models = ["gpt-6-sol", "gpt-6-astra", "native"]
 effort = "medium"
 
 [projects.vedokrok]

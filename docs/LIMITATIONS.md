@@ -1,8 +1,10 @@
 # Supported subset and limitations
 
-- Native/default model mappings are preserved. Five paired tasks show mixed token
-  overhead and lower sampled elapsed time, confounded with effort. No general quality,
-  context or subscription-efficiency advantage has been established.
+- The five paired tasks measured the earlier native-preserving/150k policy, not policy
+  v2. Policy v2 now uses Luna/Sol/Astra live-catalog ladders, delta repair packets,
+  staged validation and a finish-started-task quality gate. These changes reduce
+  deterministic controller overhead, but no general subscription-efficiency claim is
+  made until a new paired live evaluation is run.
 - Real worker/edit/test/fresh-review/resume/manual-compaction tests passed on the pinned
   Mac environment. Primary evaluation requested Astra low/medium/high and native xhigh;
   separate lifecycle/recovery probes requested Luna low/medium/high. Not every catalog model was exercised.
@@ -17,9 +19,10 @@
   unknown. Cumulative tokens are not context occupation. Requested/resolved model is
   not proven serving model; effective model stays null without reroute telemetry.
 - Quota is account-wide. Unknown relevant allowance pauses. No paid fallback, credits
-  purchase or reset-credit action exists. Token soft budgets gate the next turn; one
-  turn can cross the threshold. The tested cycle used 194,779 observed tokens against
-  a 150,000 soft threshold because its last review began below that threshold.
+  purchase or reset-credit action exists. In policy v2 the soft token envelope limits
+  additional queue work, while a started task may finish its bounded review/repair gate
+  when `finish_started_task=true`; deadline, turn count and quota remain dispatch gates.
+  The historical 194,779/150,000 pause belongs to the earlier policy.
 - The parent Desktop conversation and setup overhead are unmeasured. Final completion
   cost includes failed attempts and repeated review, not just the successful builder.
 - Product adapters read current repo identity/default SHA/instructions/PRs/issues.
@@ -47,14 +50,15 @@
 - One foreground worker per installation. Persistence after closing Codex, sleep or
   termination is not promised. A live lease is not stolen even after a long sleep.
 - Five direct-native/Factory pairs ran through the explicit evaluation harness; one
-  repetition per case and one Python library cannot establish broad savings. Default
-  Factory workflows completed 2/5; all output trees passed common checks. The old
-  `benchmark --live` compares effort profiles inside Factory, not workflows.
-  Offline benchmark remains policy-only with zero model performance samples.
+  repetition per case and one Python library cannot establish broad savings. The older
+  Factory workflows completed 2/5; all output trees passed common checks.
+  `benchmark --live` now compares model/effort routing inside Factory, not workflow
+  or harness overhead. Offline benchmark remains policy-only with zero model performance samples.
 - Active-time metrics are complete only for runs created after instrumentation. Old
   receipts cannot retroactively separate paused time or missing role-level usage.
 
-- The long-task recovery stress probe used a separately declared 500k soft ceiling,
-  then reported 838548 cumulative tokens after same-thread continuation. Code and
-  behavioral checks passed, but review was budget-blocked. Full recovered workflow
-  completion remains partially verified. Compaction-specific usage is unknown.
+- The long-task recovery stress probe used the older policy with a separately declared
+  500k soft ceiling, then reported 838548 cumulative tokens after same-thread
+  continuation. Code and behavioral checks passed, but review was historically
+  budget-blocked. Policy v2 changes that dispatch rule; a comparable live recovery run
+  has not yet been repeated. Compaction-specific usage remains unknown.

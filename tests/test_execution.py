@@ -22,6 +22,7 @@ def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
         d=result['data']
         assert d['builder_thread']!=d['reviewer_thread']
         assert FakeRuntime.history[-1]['resume'] is None
+        assert 'do not duplicate controller validation' in FakeRuntime.history[-1]['instructions']
         assert 'builder_response' not in FakeRuntime.turns[-1]['packet']
         assert (repo/'foreign.txt').read_text()=='preserve me'
         assert (repo/'clamp.py').read_text().endswith('return value\n')
@@ -31,6 +32,80 @@ def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
     finally:runner.close()
 
 
+def test_repair_uses_delta_packet_and_stronger_review(cfg):
+    FakeRuntime.outcomes=[
+        {'verdict':'PASS','findings':[],'summary':'build'},
+        {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
+        {'verdict':'PASS','findings':[],'summary':'repaired'},
+        {'verdict':'PASS','findings':[],'summary':'reviewed'},
+    ]
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        build=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')['packet']
+        repair=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')['packet']
+        assert set(build['task'])=={'id','description','acceptance','paths'}
+        assert build['guidance_files']==['AGENTS.md']
+        assert 'BACKLOG.md' not in build['guidance_files']
+        assert 'task' in build and 'task' not in repair and repair['task_id']=='clamp-v1'
+        assert 'acceptance' not in repair # persistent builder thread already owns the immutable contract
+        assert len(json.dumps(repair,separators=(',',':'))) < len(json.dumps(build,separators=(',',':')))
+        build_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')
+        repair_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert build_turn['thread']==repair_turn['thread']
+        assert len(FakeRuntime.history)==3 # build + two fresh reviews; repair needs no thread/resume RPC
+        assert FakeRuntime.history[-1]['profile']=='deep'
+        assert r['data']['efficiency']['packet_utf8_bytes_avoided'] > 0
+        assert r['data']['efficiency']['thread_resume_calls_avoided']==1
+    finally: runner.close()
+
+
+def test_soft_token_envelope_does_not_skip_mandatory_review(cfg):
+    cfg['budget']['soft_tokens']=1
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        assert r['data']['soft_budget_overshoot_tokens'] > 0
+        assert any(t['role']=='review' for t in r['data']['turns'])
+    finally: runner.close()
+
+
+def test_deep_task_keeps_deep_independent_review(cfg):
+    repo=Path(cfg['projects']['demo']['path']);p=repo/'BACKLOG.md'
+    p.write_text(p.read_text().replace('"complexity": "low"','"complexity": "high"'))
+    git(repo,'add','BACKLOG.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Deep task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='READY_LOCAL'
+        assert [h['profile'] for h in FakeRuntime.history]==['deep','deep']
+    finally: runner.close()
+
+
+def test_focused_failure_skips_broad_final_checks(cfg):
+    broad=['python','-c','print("broad")']
+    cfg['projects']['demo']['checks']['broad']=broad
+    cfg['projects']['demo']['final_checks']=['unit','broad']
+    class RecordingRuntime(FakeRuntime):
+        calls=[]
+        def command(self,cwd,argv,**kwargs):
+            self.calls.append(argv)
+            if argv==cfg['projects']['demo']['checks']['unit']:
+                return {'exitCode':1,'stdout':'focused failure','stderr':''}
+            return {'exitCode':0,'stdout':'','stderr':''}
+    runner=Runner(cfg,runtime_factory=RecordingRuntime,emit=lambda _:None)
+    try:
+        r=runner.run('demo')[0]
+        assert r['state']=='BLOCKED_REPAIR_LIMIT'
+        assert RecordingRuntime.calls
+        assert broad not in RecordingRuntime.calls
+    finally: runner.close()
+
+
 def test_repair_limit(cfg):
     FakeRuntime.fail_tests=True
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
@@ -38,6 +113,10 @@ def test_repair_limit(cfg):
         r=runner.run('demo')[0]
         assert r['state']=='BLOCKED_REPAIR_LIMIT'
         assert r['data']['repairs']==2 and r['data']['escalations']==1
+        assert r['data']['routing_upgrades']==1
+        assert [t['profile'] for t in FakeRuntime.turns]==['fast','standard','deep']
+        repair=next(t['packet'] for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert repair['validation'][0]['failure_excerpt']=='fixture assertion failed'
         assert len(FakeRuntime.turns)==3
     finally:runner.close()
 
@@ -51,6 +130,7 @@ def test_interruption_resume(cfg):
         resumed=runner.resume(first['id'])
         assert resumed['state']=='READY_LOCAL'
         assert resumed['data']['repairs']==0
+        assert any(h['resume'] is not None for h in FakeRuntime.history)
     finally:runner.close()
 
 
@@ -126,19 +206,78 @@ def test_ambiguous_pr_creation_reconciles_before_retry(tmp_path,monkeypatch):
     assert len(calls)==1
 
 
-def test_queue_two_independent_tasks(cfg):
+def test_microbatch_runs_two_compatible_tasks_once(cfg):
     repo=Path(cfg['projects']['demo']['path'])
     from devfactory.fixture import TASK
-    t=copy.deepcopy(TASK);t['id']='second';t['priority']=2
+    task=copy.deepcopy(TASK);task.update(id='second',priority=2,description='Create bounded independent note.',
+                                       acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(task)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second compatible task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
+        'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['pass']
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        results=runner.run('demo',max_tasks=2)
+        assert len(results)==1 and results[0]['state']=='READY_LOCAL'
+        d=results[0]['data']
+        assert d['task_ids']==['clamp-v1','second']
+        assert len(FakeRuntime.turns)==2
+        assert Path(d['worktree'],'second.txt').read_text()=='fixture change\n'
+        assert [x['check'] for x in d['tests']]==['unit','note','pass']
+        assert all(x['log'] is None for x in d['tests'])
+        turns=len(FakeRuntime.turns)
+        again=runner.run('demo',max_tasks=1)
+        assert again[0]['state']=='EXISTING_COMPLETION'
+        assert len(FakeRuntime.turns)==turns
+    finally:runner.close()
+
+def test_new_run_skips_existing_completion_and_continues_backlog(cfg):
+    repo=Path(cfg['projects']['demo']['path'])
+    from devfactory.fixture import TASK
+    t=copy.deepcopy(TASK);t.update(id='second',priority=2,description='Create bounded independent note.',
+                                   acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
     with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
     git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
+        'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['pass']
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo',max_tasks=1)
+        assert first[-1]['state']=='READY_LOCAL'
+        turns=len(FakeRuntime.turns)
+        second=runner.run('demo',max_tasks=1)
+        assert [x['state'] for x in second]==['EXISTING_COMPLETION','READY_LOCAL']
+        assert len(FakeRuntime.turns)==turns+2
+    finally: runner.close()
+
+
+def test_related_overlap_is_batched_instead_of_split(cfg):
+    repo=Path(cfg['projects']['demo']['path'])
+    from devfactory.fixture import TASK
+    task=copy.deepcopy(TASK);task['id']='overlap';task['priority']=2
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(task)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Overlapping compatible task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         results=runner.run('demo',max_tasks=2)
-        assert len(results)==2 and all(r['state']=='READY_LOCAL' for r in results)
-        assert len({r['data']['worktree'] for r in results})==2
+        assert len(results)==1 and results[0]['state']=='READY_LOCAL'
+        assert results[0]['data']['task_ids']==['clamp-v1','overlap']
+        assert len(FakeRuntime.turns)==2
+        assert [x['check'] for x in results[0]['data']['tests']]==['unit']
     finally:runner.close()
+
+def test_scope_overlap_detects_parent_child_paths():
+    from devfactory.runner import scopes_overlap
+    assert scopes_overlap(['src'],['src/feature/file.py'])
+    assert scopes_overlap(['src/feature/file.py'],['src'])
+    assert not scopes_overlap(['src/a'],['src/b'])
 
 
 def test_changed_completed_contract_does_not_duplicate_branch(cfg):
