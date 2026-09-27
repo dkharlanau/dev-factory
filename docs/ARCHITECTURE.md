@@ -15,7 +15,11 @@ Experimental APIs and remote WebSockets are disabled.
 
 The lifecycle is refresh → select → claim → build → validate → fresh review →
 bounded repair → ready/blocked → receipt. No separate Codex Goal controls child
-work. One flock/SQLite lease serializes all configured projects for this installation;
+work. Native multi-agent is deliberately disabled inside a task: implementation,
+repair and review touch one mutable change set, while parallel subagents can add token
+overhead and coordination without independent write domains. Parallelism remains an
+evaluation target for future read-only research or truly independent repositories.
+One flock/SQLite lease serializes all configured projects for this installation;
 there is no claim of exclusivity over other installations, humans or Codex clients.
 No TTL-only takeover is allowed. Only explicit resume can recover a dead lease.
 
