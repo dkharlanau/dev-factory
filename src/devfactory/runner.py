@@ -335,9 +335,9 @@ class Runner:
                             d['reviewer_thread']=tid
                         else: d['builder_thread']=tid
                         usage.totals.setdefault(tid,{})
+                        attachment='fresh' if review or not existing_builder else ('continued' if continued else 'resumed')
                         record={'role':phase,'thread_id':tid,**selection.dict(),'effective_model':None,'status':'dispatching',
-                                'thread_attachment':'continued' if continued else ('fresh' if not existing_builder else 'resumed'),
-                                'escalation_reason':d.get('escalation_reason')}
+                                'thread_attachment':attachment,'escalation_reason':d.get('escalation_reason')}
                         d['turns'].append(record)
                         d['in_flight']={'thread_id':tid,'turn_id':None,'role':'review' if review else 'build'}
                         save(phase.upper()) # Charge attempt BEFORE send, including ambiguous failures.
