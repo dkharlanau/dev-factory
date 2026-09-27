@@ -50,8 +50,13 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
         assert 'BACKLOG.md' not in build['guidance_files']
         assert 'task' in build and 'task' not in repair and repair['task_id']=='clamp-v1'
         assert len(json.dumps(repair,separators=(',',':'))) < len(json.dumps(build,separators=(',',':')))
+        build_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='build')
+        repair_turn=next(t for t in FakeRuntime.turns if t['packet']['role']=='repair')
+        assert build_turn['thread']==repair_turn['thread']
+        assert len(FakeRuntime.history)==3 # build + two fresh reviews; repair needs no thread/resume RPC
         assert FakeRuntime.history[-1]['profile']=='deep'
         assert r['data']['efficiency']['packet_utf8_bytes_avoided'] > 0
+        assert r['data']['efficiency']['thread_resume_calls_avoided']==1
     finally: runner.close()
 
 
@@ -124,6 +129,7 @@ def test_interruption_resume(cfg):
         resumed=runner.resume(first['id'])
         assert resumed['state']=='READY_LOCAL'
         assert resumed['data']['repairs']==0
+        assert any(h['resume'] is not None for h in FakeRuntime.history)
     finally:runner.close()
 
 

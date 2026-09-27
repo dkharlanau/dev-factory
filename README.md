@@ -148,8 +148,9 @@ A queue continues only across disjoint declared file scopes; overlap stops befor
 another model turn because separately reviewed worktrees are not an implicit merge. With
 `finish_started_task=true`, the soft token envelope stops additional queue work but
 does not strand an already-started task before its bounded review/repair gate. Deadline,
-turn count and quota remain hard dispatch gates. Repair turns reuse the builder thread
-and send delta evidence rather than replaying the full contract. Model-facing task
+turn count and quota remain hard dispatch gates. Repair turns continue directly in the
+already-attached builder thread and send delta evidence rather than replaying the full
+contract; `thread/resume` is reserved for actual controller/runtime recovery. Model-facing task
 packets contain only the implementation contract fields needed by the worker; controller
 routing metadata and unrelated backlog authority stay out of model context. Review is
 evidence-first: passing controller checks are not repeated unless the reviewer has a

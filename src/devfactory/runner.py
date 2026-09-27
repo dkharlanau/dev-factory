@@ -252,7 +252,8 @@ class Runner:
             d['efficiency']=usage_efficiency(d['usage'])
             d['efficiency'].update({
                 'packet_utf8_bytes':sum(t.get('packet_utf8_bytes',0) for t in d['turns']),
-                'packet_utf8_bytes_avoided':sum(t.get('packet_utf8_bytes_avoided',0) for t in d['turns'])
+                'packet_utf8_bytes_avoided':sum(t.get('packet_utf8_bytes_avoided',0) for t in d['turns']),
+                'thread_resume_calls_avoided':sum(t.get('thread_attachment')=='continued' for t in d['turns'])
             })
             self.store.save(rid,state,d)
             self.store.heartbeat(rid,wt)
@@ -274,10 +275,12 @@ class Runner:
             save('CLAIMED')
             with self.runtime_factory(wt) as rt:
                 d['runtime_versions']=rt.inventory().get('versions') if adapter.get('fixture') else None
+                attached_builder=None
                 if recovering and d.get('in_flight'):
                     flight=d['in_flight']
                     sel=choose_model(d['profile'],self.config,rt.catalog,rt.native,baseline=d['baseline'])
-                    rt.start(wt,sel,WORKER_RULES,resume=flight['thread_id'])
+                    resumed=rt.start(wt,sel,WORKER_RULES,resume=flight['thread_id'])
+                    if flight.get('role')=='build': attached_builder=resumed
                     state=rt.rpc('thread/read',{'threadId':flight['thread_id'],'includeTurns':True})['thread']
                     matching=[t for t in state.get('turns',[]) if t['id']==flight.get('turn_id')]
                     if flight.get('turn_id') is None and state.get('turns'):
@@ -319,14 +322,21 @@ class Runner:
                             'the controller runs configured validation.\n')
                         review_cwd = review_snapshot(wt, logdir/f'review-{len(d["turns"])+1}', d['base_sha']) if review else wt
                         review_fingerprint = fingerprint(review_cwd,d['base_sha']) if review else None
-                        tid=rt.start(review_cwd,selection,instructions,read_only=False,
-                                     resume=None if review else d.get('builder_thread'))
+                        existing_builder=d.get('builder_thread')
+                        continued=bool(not review and existing_builder and attached_builder==existing_builder)
+                        if continued:
+                            tid=existing_builder
+                        else:
+                            tid=rt.start(review_cwd,selection,instructions,read_only=False,
+                                         resume=None if review else existing_builder)
+                            if not review: attached_builder=tid
                         if review:
                             if tid==d.get('builder_thread'): raise Stop('BLOCKED_RUNTIME','Reviewer reused builder context')
                             d['reviewer_thread']=tid
                         else: d['builder_thread']=tid
                         usage.totals.setdefault(tid,{})
                         record={'role':phase,'thread_id':tid,**selection.dict(),'effective_model':None,'status':'dispatching',
+                                'thread_attachment':'continued' if continued else ('fresh' if not existing_builder else 'resumed'),
                                 'escalation_reason':d.get('escalation_reason')}
                         d['turns'].append(record)
                         d['in_flight']={'thread_id':tid,'turn_id':None,'role':'review' if review else 'build'}

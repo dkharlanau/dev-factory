@@ -38,6 +38,8 @@ Both benchmark variants use identical tools, acceptance, tests and starting comm
 with separate worktrees/threads and no solution or receipt sharing.
 
 Builder repair turns stay in the same native thread and receive only delta evidence.
+Within one live Runtime process they continue directly on that attached thread; the
+resume RPC is used only when a controller/runtime restart must reattach durable state.
 Fresh reviewers receive the bounded implementation contract, summarized check outcomes,
 task-relevant guidance paths and diff access. Controller-only routing metadata and
 unrelated backlog authority are not copied into model context. Review is evidence-first:
