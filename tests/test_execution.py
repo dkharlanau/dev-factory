@@ -32,6 +32,32 @@ def test_end_to_end_fresh_review_idempotence_foreign_dirty(cfg):
     finally:runner.close()
 
 
+@pytest.mark.parametrize('local_change',[None,'edit','delete','committed'])
+def test_stale_clean_authority_uses_current_base_but_preserves_local_changes(cfg,local_change):
+    repo=Path(cfg['projects']['demo']['path'])
+    old=git(repo,'rev-parse','HEAD')
+    guide=repo/'AGENTS.md'
+    guide.write_text(guide.read_text()+'Current remote guidance.\n')
+    git(repo,'add','AGENTS.md')
+    git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','New remote authority')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    git(repo,'switch','--detach',old)
+    if local_change in ('edit','committed'): guide.write_text('Local owner decision.\n')
+    if local_change=='delete': guide.unlink()
+    if local_change=='committed':
+        git(repo,'add','AGENTS.md')
+        git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Local authority')
+    head=git(repo,'rev-parse','HEAD')
+    content=guide.read_text() if guide.exists() else None
+    plan=resolve(cfg,'demo')
+    if local_change is None:
+        assert plan['state']=='EXECUTE' and plan['dirty_authority']==[]
+    else:
+        assert plan['state']=='NATIVE_HANDOFF' and plan['dirty_authority']==['AGENTS.md']
+    assert git(repo,'rev-parse','HEAD')==head
+    assert (guide.read_text() if guide.exists() else None)==content
+
+
 def test_repair_uses_delta_packet_and_stronger_review(cfg):
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},

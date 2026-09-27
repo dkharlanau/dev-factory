@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from .policy import Stop
 
-TERMINAL = {'READY_LOCAL', 'PR_OPENED', 'PR_READY', 'IDLE', 'COMPLETED'}
+TERMINAL = {'READY_LOCAL', 'PR_OPENED', 'PR_READY', 'IDLE', 'COMPLETED', 'COMPOSED_LOCAL', 'BATCH_READY_LOCAL'}
 
 def identity(pid):
     r = subprocess.run(['ps','-p',str(pid),'-o','lstart='],capture_output=True,text=True)

@@ -85,14 +85,26 @@ def main(argv=None):
             from .runner import Runner
             # Reconstruct fixture adapter from stable fixture identity, not a saved prompt.
             store=Store(config['state_dir'])
-            try: project=store.get(args.run_id)['project']
+            try:
+                saved=store.get(args.run_id)
+                project=saved['project']
             finally: store.close()
             if project in ('demo','smoke'):
                 from .fixture import prepare
                 config=prepare(config,project)
-            runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
-            try: result=runner.resume(args.run_id)
-            finally: runner.close()
+            if saved['data'].get('operation')=='batch-review':
+                from .batch import load_composition,review_composed_batch
+                result=review_composed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
+            elif saved['data'].get('operation')=='batch':
+                from .batch import compose_reviewed_slices
+                store=Store(config['state_dir'])
+                try: runs=[store.get(rid) for rid in saved['data']['run_ids']]
+                finally: store.close()
+                result=compose_reviewed_slices(runs,config['state_dir'])
+            else:
+                runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
+                try: result=runner.resume(args.run_id)
+                finally: runner.close()
         elif args.command=='batch':
             if len(args.run_ids)<2:
                 raise Stop('BLOCKED_BATCH','batch requires at least two run ids')
@@ -125,7 +137,7 @@ def main(argv=None):
         print(json.dumps(result,indent=2,default=str))
         if args.command in ('run','resume','batch-review') or (args.command=='doctor' and args.live):
             values=result.get('live',[]) if args.command=='doctor' else (result if isinstance(result,list) else [result])
-            if any(x.get('state') not in ('READY_LOCAL','BATCH_READY_LOCAL','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
+            if any(x.get('state') not in ('READY_LOCAL','COMPOSED_LOCAL','BATCH_READY_LOCAL','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
                 return 2
         return 0
     except Stop as e:

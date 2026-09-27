@@ -18,8 +18,8 @@ def command(argv, cwd=None, timeout=30, check=True):
     return r
 
 
-def git(path,*args,check=True):
-    return command(['git','-c','core.hooksPath=/dev/null','-C',str(path),*args],check=check).stdout.strip()
+def git(path,*args,check=True,timeout=30):
+    return command(['git','-c','core.hooksPath=/dev/null','-C',str(path),*args],check=check,timeout=timeout).stdout.strip()
 
 
 def repository_id(remote):

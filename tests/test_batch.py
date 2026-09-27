@@ -11,6 +11,7 @@ from devfactory.fixture import TASK
 from devfactory.policy import Stop
 from devfactory.repository import git
 from devfactory.runner import Runner
+from devfactory.state import Store
 from fakes import FakeRuntime
 
 
@@ -137,3 +138,203 @@ def test_batch_refuses_reviewed_worktree_drift(cfg):
     Path(runs[0]['data']['worktree'],'clamp.py').write_text('foreign drift\n')
     with pytest.raises(Stop,match='changed after review'):
         compose_reviewed_slices(runs,cfg['state_dir'])
+
+
+def test_batch_operations_share_global_worker_lock(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    owner=Store(cfg['state_dir'])
+    rid=owner.create('demo','live-owner',{})
+    owner.claim(rid)
+    turns=len(FakeRuntime.turns)
+    try:
+        with pytest.raises(Stop,match='global local lock'):
+            compose_reviewed_slices(runs,cfg['state_dir'])
+        with pytest.raises(Stop,match='global local lock'):
+            review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+        assert len(FakeRuntime.turns)==turns
+    finally:
+        owner.release(rid);owner.close()
+
+
+def test_batch_review_refuses_live_lease_even_without_flock(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    owner=Store(cfg['state_dir'])
+    rid=owner.create('demo','live-owner',{})
+    owner.claim(rid);owner.release_lock()
+    try:
+        with pytest.raises(Stop,match='live process'):
+            review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    finally:
+        owner.release(rid);owner.close()
+
+
+def test_batch_review_holds_lock_during_checks_and_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    class ContendingRuntime(FakeRuntime):
+        def contender(self):
+            other=Store(cfg['state_dir'])
+            try:
+                with pytest.raises(Stop,match='global local lock'): other.acquire_lock()
+                lease=other.db.execute('SELECT run_id FROM lease').fetchone()
+                assert other.get(lease[0])['data']['operation']=='batch-review'
+            finally: other.close()
+        def command(self,*args,**kwargs):
+            self.contender()
+            return super().command(*args,**kwargs)
+        def turn(self,*args,**kwargs):
+            self.contender()
+            return super().turn(*args,**kwargs)
+    result=review_composed_batch(cfg,batch,runtime_factory=ContendingRuntime)
+    assert result['state']=='BATCH_READY_LOCAL'
+    store=Store(cfg['state_dir'])
+    try:
+        assert store.db.execute('SELECT * FROM lease').fetchone() is None
+        assert store.get(result['run_id'])['state']=='BATCH_READY_LOCAL'
+    finally: store.close()
+
+
+class LostReviewResult(FakeRuntime):
+    persisted={}
+    active=False
+    def turn(self,*args,**kwargs):
+        result=super().turn(*args,**kwargs)
+        self.persisted[result['thread_id']]={'id':result['turn_id'],'status':'completed',
+            'items':[{'type':'agentMessage','phase':'final_answer','text':result['final']}]}
+        raise Stop('BLOCKED_RUNTIME','Injected lost review response')
+    def rpc(self,method,params):
+        return {'thread':{'status':{'type':'active' if self.active else 'idle'},
+                          'turns':[self.persisted[params['threadId']]]}}
+
+
+def test_batch_review_recovers_lost_result_without_another_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    turns=len(FakeRuntime.turns)
+    with pytest.raises(Stop,match='Injected lost'):
+        review_composed_batch(cfg,batch,runtime_factory=LostReviewResult)
+    path=Path(cfg['state_dir'])/'batches'/batch['batch_id']/'integration.json'
+    saved=json.loads(path.read_text())
+    assert saved['turn_id'] and saved['thread_id'] and saved['usage']['totalTokens']==130
+    assert saved['model_turns']==1 and saved['usage_complete'] is False
+    result=review_composed_batch(cfg,batch,runtime_factory=LostReviewResult)
+    assert result['state']=='BATCH_READY_LOCAL' and result['recovered']
+    assert result['model_turns']==1 and result['usage']['totalTokens']==130
+    assert result['usage_complete'] is False and len(FakeRuntime.turns)==turns+1
+
+
+def test_batch_review_does_not_redispatch_active_native_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    with pytest.raises(Stop): review_composed_batch(cfg,batch,runtime_factory=LostReviewResult)
+    turns=len(FakeRuntime.turns)
+    class ActiveReview(LostReviewResult): active=True
+    with pytest.raises(Stop,match='still active'):
+        review_composed_batch(cfg,batch,runtime_factory=ActiveReview)
+    assert len(FakeRuntime.turns)==turns
+
+
+def test_batch_review_unknown_dispatch_acknowledgement_is_preserved(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    class MissingAcknowledgement(FakeRuntime):
+        calls=0
+        def turn(self,*args,**kwargs):
+            type(self).calls+=1
+            raise Stop('BLOCKED_RUNTIME','No acknowledgement')
+    with pytest.raises(Stop): review_composed_batch(cfg,batch,runtime_factory=MissingAcknowledgement)
+    with pytest.raises(Stop,match='acknowledgement is unknown'):
+        review_composed_batch(cfg,batch,runtime_factory=MissingAcknowledgement)
+    saved=json.loads((Path(cfg['state_dir'])/'batches'/batch['batch_id']/'integration.json').read_text())
+    assert saved['model_turns'] is None and saved['dispatch_attempts']==1
+    assert MissingAcknowledgement.calls==1
+
+
+def test_batch_review_recovers_result_saved_before_final_receipt(cfg,monkeypatch):
+    import devfactory.batch as module
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    finish=module._finish_review
+    def fail(*args): raise OSError('Injected receipt failure')
+    monkeypatch.setattr(module,'_finish_review',fail)
+    with pytest.raises(OSError): review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    turns=len(FakeRuntime.turns)
+    monkeypatch.setattr(module,'_finish_review',finish)
+    def no_runtime(*args): pytest.fail('Persisted result needs no native execution')
+    result=review_composed_batch(cfg,batch,runtime_factory=no_runtime)
+    assert result['state']=='BATCH_READY_LOCAL' and len(FakeRuntime.turns)==turns
+
+
+def test_batch_review_pause_before_dispatch_spends_no_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    class PausingRuntime(FakeRuntime):
+        def command(self,*args,**kwargs):
+            result=super().command(*args,**kwargs)
+            store=Store(cfg['state_dir'])
+            try:
+                rid=store.db.execute('SELECT run_id FROM lease').fetchone()[0]
+                store.pause(rid)
+                assert kwargs['should_pause']()
+            finally: store.close()
+            return result
+    turns=len(FakeRuntime.turns)
+    with pytest.raises(Stop,match='requested batch pause'):
+        review_composed_batch(cfg,batch,runtime_factory=PausingRuntime)
+    assert len(FakeRuntime.turns)==turns
+
+
+def test_batch_review_expired_deadline_spends_no_turn(cfg,monkeypatch):
+    import devfactory.batch as module
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    clock=[module.time.time()]
+    monkeypatch.setattr(module.time,'time',lambda:clock[0])
+    class SlowValidation(FakeRuntime):
+        def command(self,*args,**kwargs):
+            result=super().command(*args,**kwargs)
+            clock[0]+=cfg['budget']['deadline_seconds']+1
+            return result
+    turns=len(FakeRuntime.turns)
+    with pytest.raises(Stop,match='deadline reached'):
+        review_composed_batch(cfg,batch,runtime_factory=SlowValidation)
+    assert len(FakeRuntime.turns)==turns
+
+
+def test_batch_review_does_not_redispatch_interrupted_turn(cfg):
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    FakeRuntime.interrupt=True
+    with pytest.raises(Stop,match='attempt preserved'):
+        review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    turns=len(FakeRuntime.turns)
+    FakeRuntime.interrupt=False
+    with pytest.raises(Stop,match='attempt preserved'):
+        review_composed_batch(cfg,batch,runtime_factory=FakeRuntime)
+    assert len(FakeRuntime.turns)==turns
+
+
+def test_batch_review_resume_recovers_dead_owner_without_redispatch(cfg,monkeypatch,capsys):
+    import devfactory.batch as module
+    from devfactory.cli import main
+    runs=reviewed_pair(cfg)
+    batch=compose_reviewed_slices(runs,cfg['state_dir'])
+    with pytest.raises(Stop): review_composed_batch(cfg,batch,runtime_factory=LostReviewResult)
+    path=Path(cfg['state_dir'])/'batches'/batch['batch_id']/'integration.json'
+    saved=json.loads(path.read_text())
+    # A dead process can leave its durable lease after the OS releases its flock.
+    owner=Store(cfg['state_dir'])
+    owner.claim(saved['run_id'])
+    with owner.db:
+        owner.db.execute('UPDATE lease SET pid=-1,identity=?',('dead-fixture-owner',))
+    owner.close()
+    review=module.review_composed_batch
+    monkeypatch.setattr(module,'review_composed_batch',lambda c,b:review(c,b,runtime_factory=LostReviewResult))
+    monkeypatch.setattr('devfactory.cli.load',lambda *args:cfg)
+    monkeypatch.setattr('devfactory.fixture.prepare',lambda c,*args:c)
+    turns=len(FakeRuntime.turns)
+    assert main(['resume',saved['run_id']])==0
+    assert json.loads(capsys.readouterr().out)['state']=='BATCH_READY_LOCAL'
+    assert len(FakeRuntime.turns)==turns

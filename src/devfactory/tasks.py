@@ -64,7 +64,8 @@ def _load_snapshot(config, project, adapter, mutate):
             base=remote.split()[0]
             has=command(['git','-C',repo['path'],'cat-file','-e',base+'^{commit}'],check=False).returncode == 0
             if not has and mutate:
-                git(repo['path'],'fetch','--no-tags','origin',branch); has=True
+                git(repo['path'],'fetch','--no-tags','origin',branch,timeout=120)
+                has=command(['git','-C',repo['path'],'cat-file','-e',base+'^{commit}'],check=False).returncode == 0
             if not has:
                 return repo,None,None,None,None,None,{'state':'NATIVE_HANDOFF','project':project,'repository':repo,
                     'base_sha':base,'reason':'Remote base object absent locally; run may fetch before isolated work',
@@ -75,6 +76,23 @@ def _load_snapshot(config, project, adapter, mutate):
             cache[project]={'cache_key':cache_key,'meta':meta,'prs':prs,'issues':issues,'base':base,
                             'authority':authority,'github':github}
     return repo,github,meta,prs,issues,base,authority
+
+def dirty_authority_paths(repo, base, authority):
+    """A clean ancestor checkout is stale, not an uncommitted policy override."""
+    mismatches=[]
+    for doc in authority:
+        path=Path(repo['path'])/doc['path']
+        current=path.read_text() if path.is_file() else None
+        if current!=doc['text']: mismatches.append((doc['path'],current))
+    if not mismatches: return []
+    ancestor=command(['git','-C',repo['path'],'merge-base','--is-ancestor',repo['head'],base],check=False).returncode==0
+    dirty=[]
+    for name,current in mismatches:
+        original=command(['git','-C',repo['path'],'show',repo['head']+':'+name],check=False)
+        unchanged=current==(original.stdout if original.returncode==0 else None)
+        if not ancestor or not unchanged: dirty.append(name)
+    return dirty
+
 
 def resolve(config, project, *, mutate=False, batch_limit=1):
     if project not in config['projects']:
@@ -88,8 +106,7 @@ def resolve(config, project, *, mutate=False, batch_limit=1):
     repo,github,meta,prs,issues,base,authority=loaded
     repo_profile=ensure_profile(config,project,repo['path'],base)
     conflicts=branch_conflicts(authority)
-    dirty_authority=[d['path'] for d in authority if (Path(repo['path'])/d['path']).exists()
-                     and (Path(repo['path'])/d['path']).read_text()!=d['text']]
+    dirty_authority=dirty_authority_paths(repo,base,authority)
     tasks=[]
     for doc in authority:
         for t in parse_contract(doc['text']):

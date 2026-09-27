@@ -272,3 +272,12 @@ blocks the batch instead of mutating already-reviewed slices.
 
 This layer is intentionally optional: do not split work merely to use it. The ordinary v3.1 repo-aware micro-batch
 path is cheaper when tasks can be safely implemented together from the start.
+
+Composition and integration review share the ordinary runner's global worker lock and
+lease. Their run IDs appear in `status`/`report`; `pause <run-id>` requests a review
+pause and `resume <run-id>` reconciles the saved batch operation. A live lease is never
+stolen. Review dispatch, native thread/turn identity and observed usage are persisted
+before/during the turn. A lost result is recovered from the same native turn when its
+completed verdict is available. Missing acknowledgements, active/interrupted turns or
+unavailable verdicts block without a second review; inspect the preserved checkpoint.
+Recovered usage is explicitly incomplete when final telemetry was not observed.

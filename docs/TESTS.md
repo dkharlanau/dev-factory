@@ -1,6 +1,14 @@
 # Verification performed
 
-Current offline suite: **101 passed** on Python 3.11.16. GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Batch safety regression coverage includes the global worker lock and live lease,
+contention during validation/review, saved-result and native-turn recovery, unknown
+dispatch acknowledgement, active/interrupted turns, pause/deadline gates and explicit
+dead-owner resume. These cases use offline synthetic repositories and FakeRuntime;
+they do not establish live product execution or complete missing usage telemetry.
+
+Current offline suite: **133 passed** on Python 3.11.16 / macOS arm64 (2026-09-27). GitHub Actions also runs the suite on Ubuntu with the pinned SDK/runtime dependencies.
+Planning regressions distinguish a clean ancestor checkout from edited, deleted or
+independently committed local governing instructions, without changing that checkout.
 
 - Policy: available/unavailable models and effort, verified fallback, modality,
   unknown/exhausted/relevant quota, reserves, deadline, repairs/escalations.
