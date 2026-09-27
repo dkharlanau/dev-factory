@@ -118,3 +118,16 @@ reported as findings rather than silently rewritten.
 The optional campaign compiler reuses the same frozen GitHub/authority snapshot and repo profile to emit a local,
 zero-model-turn sequence of bounded batches. It is an observability/planning artifact, not a second backlog and not an
 extra mandatory phase.
+
+
+## Reviewed-slice composition
+
+A separate composition primitive handles work that was intentionally reviewed as independent slices. It requires
+an exact shared project/base/branch, pairwise-disjoint declared scopes, unchanged reviewed fingerprints, and saved
+immutable task contracts. Composition itself is deterministic and model-free: exact Git deltas are applied into a
+new Factory-owned worktree and the combined fingerprint is persisted.
+
+The composed worktree is not considered ready until configured final checks pass once and one fresh integration
+review checks the combined diff against every underlying acceptance criterion. The integration gate is
+non-repairing: validation or review findings produce a blocked receipt. This avoids turning composition into
+another autonomous editing loop and keeps the extra model cost bounded to one explicit review turn.
