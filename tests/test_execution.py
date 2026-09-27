@@ -229,6 +229,29 @@ def test_queue_two_independent_tasks(cfg):
     finally:runner.close()
 
 
+def test_new_run_skips_existing_completion_and_continues_backlog(cfg):
+    repo=Path(cfg['projects']['demo']['path'])
+    from devfactory.fixture import TASK
+    t=copy.deepcopy(TASK);t.update(id='second',priority=2,description='Create bounded independent note.',
+                                   acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
+        'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['pass']
+    runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
+    try:
+        first=runner.run('demo',max_tasks=1)
+        assert first[-1]['state']=='READY_LOCAL'
+        turns=len(FakeRuntime.turns)
+        second=runner.run('demo',max_tasks=1)
+        assert [x['state'] for x in second]==['EXISTING_COMPLETION','READY_LOCAL']
+        assert len(FakeRuntime.turns)==turns+2
+    finally: runner.close()
+
+
 def test_queue_overlap_hands_off_before_second_model_turn(cfg):
     repo=Path(cfg['projects']['demo']['path'])
     from devfactory.fixture import TASK

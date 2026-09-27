@@ -139,7 +139,9 @@ class Runner:
         queue_started = time.time()
         remaining_turns = self.config['budget'].get('max_queue_turns', self.config['budget']['max_turns'])
         remaining_tokens = self.config['budget']['soft_tokens']
-        for _ in range(max_tasks):
+        executed = 0
+        skipped_existing = set()
+        while executed < max_tasks:
             plan = self.planner(self.config,project,mutate=True)
             if plan['state'] != 'EXECUTE':
                 outcomes.append(plan)
@@ -156,12 +158,19 @@ class Runner:
                     outcomes.append({'state':'NATIVE_HANDOFF','run_id':previous['id'],'reason':'Existing task contract/base changed; reconcile preserved work before a new implementation'})
                     break
                 if previous['state'] in TERMINAL:
+                    if plan['task_key'] in skipped_existing:
+                        outcomes.append({'state':'BLOCKED_STATE','reason':'Planner repeated an already skipped completion'})
+                        break
+                    skipped_existing.add(plan['task_key'])
+                    self.config.setdefault('_completed_keys',[]).append(plan['task_key'])
+                    queued_scopes.extend(previous['data'].get('subsystem',plan['task']['paths']))
                     outcomes.append({'state':'EXISTING_COMPLETION','run_id':previous['id'],
                                      'receipt':str(self.store.path/'runs'/previous['id']/'receipt.json')})
-                else:
-                    outcomes.append({'state':'RESUME_REQUIRED','run_id':previous['id']})
+                    continue
+                outcomes.append({'state':'RESUME_REQUIRED','run_id':previous['id']})
                 break
             task_turns = min(self.config['budget']['max_turns'], remaining_turns)
+            executed += 1
             data = {'project':project,'task_id':plan['task']['id'],'contract_hash':plan['contract_hash'],
                     'task_source':plan['task']['source'],'task_category':plan['task'].get('category','unknown'),
                     'risk':plan['risk'],'subsystem':plan['task']['paths'],'base_sha':plan['base_sha'],

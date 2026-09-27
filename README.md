@@ -145,7 +145,9 @@ One worker, up to six turns **per task**, up to 60 turns per foreground queue,
 a 30-minute queue deadline, 500,000 observable-token **soft queue envelope**, two
 repair rounds, one escalation and 10% allowance reserve are starting defaults.
 A queue continues only across disjoint declared file scopes; overlap stops before
-another model turn because separately reviewed worktrees are not an implicit merge. With
+another model turn because separately reviewed worktrees are not an implicit merge.
+A later `run` skips matching terminal receipts at zero model cost and continues to the
+next backlog item; `--max-tasks` therefore limits new work, not already completed work. With
 `finish_started_task=true`, the soft token envelope stops additional queue work but
 does not strand an already-started task before its bounded review/repair gate. Deadline,
 turn count and quota remain hard dispatch gates. Repair turns continue directly in the
