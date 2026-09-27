@@ -1,4 +1,4 @@
-"""Deterministic composition of already-reviewed slices; no model or remote writes."""
+"""Deterministic composition of reviewed or explicitly deferred slices."""
 from __future__ import annotations
 import json
 import time
@@ -55,14 +55,24 @@ def integration_candidate(composition, adapter):
             'authority_hash':digest([{'path':row['path'],'sha256':row['sha256']} for row in authority])}
 
 
-def validate_reviewed_slices(runs):
+def validate_reviewed_slices(runs, *, deferred=False):
     if len(runs) < 2:
-        raise Stop('BLOCKED_BATCH','Batch composition requires at least two reviewed slices')
+        raise Stop('BLOCKED_BATCH','Batch composition requires at least two slices')
     ordered=sorted(runs,key=lambda r:r['id'])
     for run in ordered:
         d=run['data']
-        if run['state']!='READY_LOCAL' or d.get('acceptance') is not True or d.get('review')!='PASS':
-            raise Stop('BLOCKED_BATCH','Every batch slice must be READY_LOCAL with passed acceptance/review')
+        if deferred:
+            if (run['state']!='REVIEW_DEFERRED_LOCAL' or d.get('defer_review') is not True
+                or d.get('acceptance') is not None or d.get('review') is not None
+                or d.get('profile')!='fast' or d.get('risk')!='low'
+                or d.get('complexity')!='low' or d.get('verification')!='strong'
+                or d.get('builder_repair_signal')
+                or any(d.get(key,0) for key in ('repairs','failures','escalations','routing_upgrades'))
+                or not d.get('tests') or any(t.get('exit_code')!=0 for t in d['tests'])
+                or d.get('deferred_fingerprint')!=d.get('validated_fingerprint')):
+                raise Stop('BLOCKED_BATCH','Deferred slice lacks clean low/low/strong validation evidence')
+        elif run['state']!='READY_LOCAL' or d.get('acceptance') is not True or d.get('review')!='PASS':
+            raise Stop('BLOCKED_BATCH','Every Phase A slice must be READY_LOCAL with passed acceptance/review')
     projects={r['data'].get('project') for r in ordered}
     bases={r['data'].get('base_sha') for r in ordered}
     branches={r['data'].get('base_branch') for r in ordered}
@@ -80,10 +90,12 @@ def validate_reviewed_slices(runs):
         if not scopes or scopes_overlap(seen_scopes,scopes):
             raise Stop('BLOCKED_BATCH','Batch slice declared scopes overlap')
         wt=Path(d.get('worktree',''))
-        if not wt.is_dir() or not d.get('reviewed_fingerprint'):
-            raise Stop('BLOCKED_RECONCILIATION','Reviewed slice worktree/fingerprint unavailable')
-        if d.get('reviewed_base')!=base or fingerprint(wt,base)!=d['reviewed_fingerprint']:
-            raise Stop('BLOCKED_RECONCILIATION','Reviewed slice changed after review')
+        slice_fingerprint=d.get('deferred_fingerprint') if deferred else d.get('reviewed_fingerprint')
+        if not wt.is_dir() or not slice_fingerprint:
+            raise Stop('BLOCKED_RECONCILIATION','Batch slice worktree/fingerprint unavailable')
+        if (not deferred and d.get('reviewed_base')!=base) or fingerprint(wt,base)!=slice_fingerprint:
+            raise Stop('BLOCKED_RECONCILIATION','Batch slice changed after validation' if deferred
+                       else 'Reviewed slice changed after review')
         actual=changed(wt,base)
         if not actual:
             raise Stop('BLOCKED_BATCH','Reviewed slice has no changed files')
@@ -103,27 +115,38 @@ def validate_reviewed_slices(runs):
             raise Stop('BLOCKED_RECONCILIATION','Reviewed slice contracts no longer match saved task scope')
         children.append({'run_id':run['id'],'task_id':d['task_id'],'task_ids':d.get('task_ids') or [d['task_id']],
                          'contract_hash':d['contract_hash'],'task_contracts':contracts,
-                         'reviewed_fingerprint':d['reviewed_fingerprint'],
+                         'slice_fingerprint':slice_fingerprint,
+                         'reviewed_fingerprint':None if deferred else slice_fingerprint,
+                         'review_state':'deferred' if deferred else 'passed',
+                         'validation_checks':[{k:t.get(k) for k in ('check','stage','exit_code')} for t in d['tests']],
+                         'usage':d.get('usage'),'usage_by_role':d.get('usage_by_role'),
+                         'model_turns':len(d.get('turns',[])),
+                         'active_execution_seconds':d.get('active_execution_seconds'),
                          'worktree':str(wt),'scopes':scopes,'files':actual,'risk':d.get('risk'),
                          'profile':d.get('profile'),'repairs':d.get('repairs',0),'escalations':d.get('escalations',0)})
     return {'project':project,'base_sha':base,'base_branch':base_branch,'repository_path':str(repo_path),
-            'children':children,'expected_files':sorted(expected_files),'scopes':seen_scopes}
+            'children':children,'expected_files':sorted(expected_files),'scopes':seen_scopes,
+            'review_mode':'deferred' if deferred else 'per_slice'}
 
 
-def compose_reviewed_slices(runs, state_dir):
-    identity=sorted(run['id'] for run in runs)
+def compose_reviewed_slices(runs, state_dir, *, deferred=False):
+    run_ids=sorted(run['id'] for run in runs)
+    identity=({'mode':'deferred','runs':sorted(run['id'] for run in runs)} if deferred
+              else sorted(run['id'] for run in runs))
     project=runs[0]['project'] if runs else 'unknown'
-    with _worker(state_dir,'batch',project,identity,run_ids=identity) as (store,rid,data):
-        result=_compose_reviewed_slices(runs,state_dir)
+    with _worker(state_dir,'batch',project,identity,run_ids=run_ids,
+                 review_mode='deferred' if deferred else 'per_slice') as (store,rid,data):
+        result=_compose_reviewed_slices(runs,state_dir,deferred=deferred)
         result['run_id']=rid
         store.save(rid,result['state'],{**data,**result})
         return result
 
 
-def _compose_reviewed_slices(runs, state_dir):
-    meta=validate_reviewed_slices(runs)
+def _compose_reviewed_slices(runs, state_dir, *, deferred=False):
+    meta=validate_reviewed_slices(runs,deferred=deferred)
     identity={'project':meta['project'],'base_sha':meta['base_sha'],
-              'children':[[c['run_id'],c['contract_hash'],c['reviewed_fingerprint']] for c in meta['children']]}
+              'children':[[c['run_id'],c['contract_hash'],c['slice_fingerprint']] for c in meta['children']]}
+    if deferred: identity['review_mode']='deferred'
     batch_id=digest(identity)[:16]
     root=Path(state_dir).resolve()/'batches'/batch_id
     worktree=root/'worktree';manifest=root/'composition.json'
@@ -156,7 +179,7 @@ def _compose_reviewed_slices(runs, state_dir):
     result={'state':'COMPOSED_LOCAL','batch_id':batch_id,'identity':identity,
             'project':meta['project'],'base_sha':meta['base_sha'],'base_branch':meta['base_branch'],
             'branch':branch,'worktree':str(worktree),'repository_path':meta['repository_path'],
-            'head_sha':head_sha,'children':meta['children'],
+            'head_sha':head_sha,'children':meta['children'],'review_mode':meta['review_mode'],
             'combined_files':combined,'combined_fingerprint':fingerprint(worktree,meta['base_sha']),
             'model_turns':0}
     atomic_json(manifest,result)
@@ -282,14 +305,19 @@ def _review_composed_batch(config, composition, *, runtime_factory, run_id, chec
             'specific unresolved concern. Report concrete file/line findings.\n')
         usage=Usage()
         packet={'role':'review','batch':composition['batch_id'],'base_sha':base,
+                'review_mode':composition.get('review_mode','per_slice'),
                 'tasks':[contract for c in children for contract in c['task_contracts']],
                 'combined_files':composition['combined_files'],
                 'final_checks':final_receipts,'diff_command':['git','diff',base]}
         raw=json.dumps(packet,separators=(',',':'),ensure_ascii=False)
         pending={'state':'BATCH_REVIEW_PENDING','batch_id':composition['batch_id'],
+                 'review_mode':composition.get('review_mode','per_slice'),
                  'composition_fingerprint':composition['combined_fingerprint'],'gate_hash':gate_hash,
                  'base_sha':base,'head_sha':composition.get('head_sha'),
-                 'children':[{k:c[k] for k in ('run_id','contract_hash','reviewed_fingerprint')} for c in children],
+                 'children':[{'run_id':c['run_id'],'contract_hash':c['contract_hash'],
+                              'slice_fingerprint':c.get('slice_fingerprint',c.get('reviewed_fingerprint')),
+                              'review_state':c.get('review_state','passed'),
+                              'validation_checks':c.get('validation_checks',[])} for c in children],
                  'integration_candidate':integration_candidate(composition,adapter),
                  'final_checks':final_receipts,'review':None,'reviewer':selection.dict(),
                  'review_worktree':str(review_dir),'review_fingerprint':review_fingerprint,
@@ -425,6 +453,7 @@ def _integrate_reviewed_batch(config, composition, *, github_factory, run_id, ch
     else:
         saved={'state':'BATCH_REMOTE_PENDING','identity':identity,'run_id':run_id,
                'batch_id':composition['batch_id'],'branch':branch,'base_branch':composition['base_branch'],
+               'review_mode':composition.get('review_mode','per_slice'),
                'children':review['children'],'final_checks':review['final_checks'],
                'review':review['review'],'usage':review.get('usage'),
                'review_model_turns':review.get('model_turns'),'model_turns':0}

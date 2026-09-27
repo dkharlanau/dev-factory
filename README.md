@@ -311,6 +311,34 @@ Ambiguous push/PR responses are checked against the remote before a retry. No me
 This layer is intentionally optional: do not split work merely to use it. The ordinary v3.1 repo-aware micro-batch
 path is cheaper when tasks can be safely implemented together from the start.
 
+### Phase B review-deferral experiment (opt-in, local)
+
+With `batching.enabled = false` in ignored local configuration and remote integration disabled,
+`./factory run <project> --max-tasks N --experimental-defer-review` first checks that all N selected
+tasks share one base, have disjoint scopes, and are low risk, low complexity, and strongly verified.
+It refuses the cohort before a model turn if any condition fails. Each clean slice still runs its
+configured checks, but ends as `REVIEW_DEFERRED_LOCAL`: acceptance has **not** passed yet. A repair,
+escalation, or uncertain builder verdict triggers the ordinary fresh per-slice review and stops
+the deferred cohort.
+
+```sh
+./factory batch <deferred-run-id> <deferred-run-id> [...] --deferred
+./factory batch-review <batch-id>
+./factory resume <deferred-run-id> --review-deferred  # fallback when no full cohort is available
+```
+
+The deferred batch rechecks every source fingerprint and validation receipt, commits exact
+disjoint deltas, runs the combined final gate, and spends one fresh integration-review turn
+covering every acceptance criterion. A failed check or review blocks the batch; no automatic
+repair, merge or deploy occurs. `batch-integrate` retains its separate exact owner-approval gate.
+The offline fixture shows the turn-count mechanism, not a quality or cost saving. Promotion
+requires paired Phase A/direct-native evaluation with task/oracle success, review findings,
+model-turn counts, input/cached/output tokens, latency and completion receipts. Unknown telemetry
+remains unknown.
+
+The first [local paired experiment](docs/benchmarks/PHASE_B.md) did not establish quality
+non-inferiority, so this path remains experimental and disabled by default.
+
 Composition, integration review, and explicit remote integration share the ordinary runner's global worker lock and
 lease. Their run IDs appear in `status`/`report`; `pause <run-id>` requests a review
 pause and `resume <run-id>` reconciles the saved batch operation. A live lease is never

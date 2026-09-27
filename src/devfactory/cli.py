@@ -27,7 +27,10 @@ def parser():
     sub.add_parser('models')
     for name in ('prep','plan','run','compile'):
         cmd=sub.add_parser(name); cmd.add_argument('project')
-        if name=='run': cmd.add_argument('--max-tasks',type=int,default=1)
+        if name=='run':
+            cmd.add_argument('--max-tasks',type=int,default=1)
+            cmd.add_argument('--experimental-defer-review',action='store_true',
+                             help='Explicit low/low/strong Phase B cohort; local only')
         if name=='compile': cmd.add_argument('--max-tasks',type=int,default=50)
     sub.add_parser('status'); sub.add_parser('report')
     for name in ('pause','resume'):
@@ -36,7 +39,9 @@ def parser():
         if name=='resume':
             cmd.add_argument('--revalidate',action='store_true',help='Refresh failed validation before repairing a preserved handoff')
             cmd.add_argument('--local-plan',type=Path,help='Resume the exact saved contract/base without GitHub refresh; local-only execution')
+            cmd.add_argument('--review-deferred',action='store_true',help='Fallback: independently review one deferred slice')
     batch=sub.add_parser('batch'); batch.add_argument('run_ids',nargs='+')
+    batch.add_argument('--deferred',action='store_true',help='Compose explicitly deferred Phase B slices')
     sub.add_parser('batch-review').add_argument('batch_id')
     sub.add_parser('batch-integrate').add_argument('batch_id')
     bench=sub.add_parser('benchmark'); bench.add_argument('--live',action='store_true')
@@ -52,9 +57,9 @@ def main(argv=None):
         config=load(args.root,args.config)
         if args.command=='schema':
             result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
-                    'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
-                    'batch <run-id> <run-id> [...]','batch-review <batch-id>','batch-integrate <batch-id>',
-                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report','benchmark [--live]'],
+                    'compile <project> [--max-tasks N]','run <project> [--max-tasks N] [--experimental-defer-review]',
+                    'batch <run-id> <run-id> [...] [--deferred]','batch-review <batch-id>','batch-integrate <batch-id>',
+                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH] [--review-deferred]','report','benchmark [--live]'],
                     'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -84,7 +89,8 @@ def main(argv=None):
             else:
                 from .runner import Runner
                 runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
-                try: result=runner.run(args.project,max_tasks=args.max_tasks)
+                try: result=runner.run(args.project,max_tasks=args.max_tasks,
+                                       defer_review=args.experimental_defer_review)
                 finally: runner.close()
         elif args.command=='resume':
             from .runner import Runner
@@ -98,26 +104,28 @@ def main(argv=None):
                 from .fixture import prepare
                 config=prepare(config,project)
             if saved['data'].get('operation')=='batch-review':
-                if args.local_plan:raise Stop('BLOCKED_RECONCILIATION','Local plans apply only to ordinary preserved runs')
+                if args.local_plan or args.review_deferred:raise Stop('BLOCKED_RECONCILIATION','Local slice options apply only to ordinary runs')
                 if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
                 from .batch import load_composition,review_composed_batch
                 result=review_composed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
             elif saved['data'].get('operation')=='batch-integrate':
-                if args.local_plan or args.revalidate:
+                if args.local_plan or args.revalidate or args.review_deferred:
                     raise Stop('BLOCKED_RECONCILIATION','Batch remote reconciliation does not accept local plans or revalidation')
                 from .batch import integrate_reviewed_batch,load_composition
                 result=integrate_reviewed_batch(config,load_composition(config['state_dir'],saved['data']['batch_id']))
             elif saved['data'].get('operation')=='batch':
-                if args.local_plan:raise Stop('BLOCKED_RECONCILIATION','Local plans apply only to ordinary preserved runs')
+                if args.local_plan or args.review_deferred:raise Stop('BLOCKED_RECONCILIATION','Local slice options apply only to ordinary runs')
                 if args.revalidate:raise Stop('BLOCKED_RECONCILIATION','Revalidation applies only to ordinary validation handoffs')
                 from .batch import compose_reviewed_slices
                 store=Store(config['state_dir'])
                 try: runs=[store.get(rid) for rid in saved['data']['run_ids']]
                 finally: store.close()
-                result=compose_reviewed_slices(runs,config['state_dir'])
+                result=compose_reviewed_slices(runs,config['state_dir'],
+                    deferred=saved['data'].get('review_mode')=='deferred')
             else:
                 runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
-                try: result=runner.resume(args.run_id,revalidate=args.revalidate,local_plan=args.local_plan)
+                try: result=runner.resume(args.run_id,revalidate=args.revalidate,local_plan=args.local_plan,
+                                          review_deferred=args.review_deferred)
                 finally: runner.close()
         elif args.command=='batch':
             if len(args.run_ids)<2:
@@ -126,7 +134,7 @@ def main(argv=None):
             try: runs=[store.get(rid) for rid in args.run_ids]
             finally: store.close()
             from .batch import compose_reviewed_slices
-            result=compose_reviewed_slices(runs,config['state_dir'])
+            result=compose_reviewed_slices(runs,config['state_dir'],deferred=args.deferred)
         elif args.command=='batch-review':
             from .batch import load_composition,review_composed_batch
             composition=load_composition(config['state_dir'],args.batch_id)
@@ -154,7 +162,7 @@ def main(argv=None):
         print(json.dumps(result,indent=2,default=str))
         if args.command in ('run','resume','batch-review','batch-integrate') or (args.command=='doctor' and args.live):
             values=result.get('live',[]) if args.command=='doctor' else (result if isinstance(result,list) else [result])
-            if any(x.get('state') not in ('READY_LOCAL','COMPOSED_LOCAL','BATCH_READY_LOCAL','BATCH_PR_OPENED','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
+            if any(x.get('state') not in ('READY_LOCAL','REVIEW_DEFERRED_LOCAL','COMPOSED_LOCAL','BATCH_READY_LOCAL','BATCH_PR_OPENED','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
                 return 2
         return 0
     except Stop as e:

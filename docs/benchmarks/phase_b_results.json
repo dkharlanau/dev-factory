@@ -1,0 +1,69 @@
+{
+  "experiment": "phase-b-pair-3",
+  "policy_version": "3.2",
+  "factory_revision": "7b4861352a69a09e72efd3902df46d6a33bbfc09",
+  "runtime_version": "0.157.1",
+  "source": {
+    "backlog_hash": "cc90ea218590bc399873c8b5c0b2148294832ffc39b51de53ce7b8420ea00c44",
+    "base_sha": "3414ff0e396defecfab6a006418ee82443d0772a",
+    "case": "phase-b-pair-3"
+  },
+  "posthoc_oracle_hash": "fa0b547e07a3039f0477c353f8f5d1b7b3f26848707bf1723f40c5f62efd2a1e",
+  "variants": {
+    "phase-a": {
+      "controller_state": "BATCH_READY_LOCAL",
+      "model_turns": 7,
+      "workflow_seconds": 124.309,
+      "usage": {
+        "inputTokens": 335280,
+        "cachedInputTokens": 216832,
+        "outputTokens": 1767,
+        "reasoningOutputTokens": 259,
+        "totalTokens": 337047
+      },
+      "visible_suite_exit": 0,
+      "posthoc_oracle_exit": 1,
+      "review_findings": [],
+      "complete_and_oracle_pass": false
+    },
+    "deferred": {
+      "controller_state": "BLOCKED_BATCH_REVIEW",
+      "model_turns": 3,
+      "workflow_seconds": 101.586,
+      "usage": {
+        "inputTokens": 242683,
+        "cachedInputTokens": 193792,
+        "outputTokens": 2314,
+        "reasoningOutputTokens": 929,
+        "totalTokens": 244997
+      },
+      "visible_suite_exit": 0,
+      "posthoc_oracle_exit": 1,
+      "review_findings": [
+        {
+          "file": "palindrome.py",
+          "line": 2,
+          "summary": "Filtering before casefolding retains combining marks added by casefolding. `is_palindrome('İ')` returns False, although a single Unicode letter is a palindrome."
+        }
+      ],
+      "complete_and_oracle_pass": false
+    },
+    "native": {
+      "controller_state": "COMPLETE_SELF_REVIEWED",
+      "model_turns": 1,
+      "workflow_seconds": 39.067,
+      "usage": {
+        "inputTokens": 76667,
+        "cachedInputTokens": 43264,
+        "outputTokens": 1227,
+        "reasoningOutputTokens": 227,
+        "totalTokens": 77894
+      },
+      "visible_suite_exit": 0,
+      "posthoc_oracle_exit": 0,
+      "review_findings": [],
+      "complete_and_oracle_pass": true
+    }
+  },
+  "decision": "do_not_promote_deferred_review"
+}
