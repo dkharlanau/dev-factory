@@ -207,6 +207,23 @@ def test_queue_two_independent_tasks(cfg):
     with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
     git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
+    cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
+        'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
+    cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
+    cfg['projects']['demo']['final_checks']=['pass']
+    # First task keeps its focused unit check; second has an independent focused check.
+    t_checks=cfg['projects']['demo']['checks']
+    # Contract already committed above; rewrite authority with the named independent check.
+    p=repo/'BACKLOG.md'
+    p.write_text(p.read_text().replace('"checks": ["unit"]', '"checks": ["note"]', 1)
+                 if '"id": "second"' in p.read_text() else p.read_text())
+    # The JSON is one-line in this test, so update the second contract deterministically.
+    text=p.read_text()
+    marker=json.dumps(t)
+    updated=json.dumps(dict(t,checks=['note']))
+    p.write_text(text.replace(marker,updated))
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Independent check')
+    cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
     cfg['budget']['max_turns']=2
     cfg['budget']['max_queue_turns']=4
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
