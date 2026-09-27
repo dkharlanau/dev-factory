@@ -72,7 +72,7 @@ def test_manifest_and_skill():
 @pytest.mark.parametrize('argv',[['doctor'],['doctor','--live'],['models'],['prep','voice-lab'],['plan','voice-lab'],
  ['compile','voice-lab','--max-tasks','10'],['run','demo','--max-tasks','1'],
  ['batch','a','b'],['batch-review','0123456789abcdef'],['batch-integrate','0123456789abcdef'],
- ['status'],['pause','id'],['resume','id'],['report'],['report','run-1','--summary'],['benchmark'],['benchmark','--live']])
+ ['status'],['pause','id'],['resume','id'],['report'],['report','run-1','--summary'],['report','run-1','--full'],['benchmark'],['benchmark','--live']])
 def test_cli_schema(argv): assert parser().parse_args(argv).command==argv[0]
 
 
@@ -86,6 +86,27 @@ def test_report_summary_keeps_latest_check_and_omits_turn_history():
     assert summary['latest_checks']['check']=={'exit_code':0,'stage':'final'}
     assert summary['failed_checks_seen']==['check']
     assert 'turns' not in summary and 'packet' not in json.dumps(summary)
+
+
+def test_report_is_compact_by_default_and_full_is_explicit(monkeypatch,capsys):
+    from devfactory import cli
+    run={'id':'run-1','project':'voice-lab','state':'READY_LOCAL','data':{
+        'task_id':'task-1','turns':[{'packet':'large private context'}]}}
+    class FakeStore:
+        def __init__(self,*_): pass
+        def all(self): return [run]
+        def get(self,_): return run
+        def close(self): pass
+    monkeypatch.setattr(cli,'load',lambda *_:{'state_dir':'unused'})
+    monkeypatch.setattr(cli,'Store',FakeStore)
+
+    assert cli.main(['report'])==0
+    compact=json.loads(capsys.readouterr().out)
+    assert compact[0]['run_id']=='run-1' and 'turns' not in compact[0]
+
+    assert cli.main(['report','run-1','--full'])==0
+    full=json.loads(capsys.readouterr().out)
+    assert full['data']['turns'][0]['packet']=='large private context'
 
 
 def test_offline_benchmark_never_calls_runtime(cfg,monkeypatch):

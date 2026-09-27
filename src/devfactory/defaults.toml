@@ -15,7 +15,7 @@ unknown_quota = "pause"
 [context]
 native_autocompaction = true
 factory_auto_compaction = true
-compact_after_builder_turns = 2
+compact_after_builder_turns = 1
 compact_min_remaining_tokens = 100000
 navigation_files = 40
 failure_log_bytes = 12000

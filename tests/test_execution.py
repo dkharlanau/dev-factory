@@ -169,6 +169,7 @@ def test_handoff_does_not_inventory_cold_history(cfg,monkeypatch,blocker):
 
 
 def test_repair_uses_delta_packet_and_stronger_review(cfg):
+    cfg['context']['factory_auto_compaction']=False
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},
         {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
@@ -197,14 +198,14 @@ def test_repair_uses_delta_packet_and_stronger_review(cfg):
     finally: runner.close()
 
 
-def test_long_repair_thread_compacts_from_durable_checkpoint_and_reanchors_contract(cfg):
+def test_default_repair_compacts_from_durable_checkpoint_and_reanchors_contract(cfg):
     FakeRuntime.outcomes=[
         {'verdict':'PASS','findings':[],'summary':'build'},
         {'verdict':'REPAIR','findings':[{'file':'clamp.py','line':1,'summary':'tighten implementation'}],'summary':'repair'},
         {'verdict':'PASS','findings':[],'summary':'repaired'},
         {'verdict':'PASS','findings':[],'summary':'reviewed'},
     ]
-    cfg['context']['compact_after_builder_turns']=1
+    assert cfg['context']['compact_after_builder_turns']==1
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         result=runner.run('demo')[0]; data=result['data']

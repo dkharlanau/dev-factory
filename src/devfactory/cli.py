@@ -32,7 +32,9 @@ def parser():
     sub.add_parser('status')
     report=sub.add_parser('report')
     report.add_argument('run_id',nargs='?')
-    report.add_argument('--summary',action='store_true',help='Show compact receipt fields without turn histories')
+    report_modes=report.add_mutually_exclusive_group()
+    report_modes.add_argument('--summary',action='store_true',help='Alias for the default compact report')
+    report_modes.add_argument('--full',action='store_true',help='Include complete receipts and turn histories')
     for name in ('pause','resume'):
         cmd=sub.add_parser(name)
         cmd.add_argument('run_id')
@@ -90,7 +92,7 @@ def main(argv=None):
             result={'version':'2','commands':['doctor [--live]','models','prep <project>','plan <project>',
                     'compile <project> [--max-tasks N]','run <project> [--max-tasks N]',
                     'batch <run-id> <run-id> [...]','batch-review <batch-id>','batch-integrate <batch-id>',
-                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report [run-id] [--summary]','benchmark [--live]'],
+                    'status','pause <run-id>','resume <run-id> [--revalidate] [--local-plan PATH]','report [run-id] [--full]','benchmark [--live]'],
                     'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -184,7 +186,7 @@ def main(argv=None):
                     r=store.pause(args.run_id); result={'run_id':r['id'],'state':r['state'],'pause_requested':r['state'] not in TERMINAL}
                 elif args.command=='report':
                     result=store.get(args.run_id) if args.run_id else store.all()
-                    if args.summary:
+                    if not args.full:
                         rows=result if isinstance(result,list) else [result]
                         summaries=[summarize_run(row) for row in rows]
                         result=summaries if isinstance(result,list) else summaries[0]
