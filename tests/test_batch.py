@@ -118,10 +118,13 @@ def test_batch_reviewer_cannot_modify_review_snapshot(cfg):
     runs=reviewed_pair(cfg)
     batch=compose_reviewed_slices(runs,cfg['state_dir'])
     class EditingReviewer(FakeRuntime):
+        def start(self,cwd,selection,instructions,read_only=False,resume=None):
+            self.review_cwd=Path(cwd)
+            return super().start(cwd,selection,instructions,read_only=read_only,resume=resume)
         def turn(self,tid,text,selection,**kwargs):
             packet=json.loads(text)
             if packet['role']=='review':
-                (self.cwd/'clamp.py').write_text('tampered by reviewer\n')
+                (self.review_cwd/'clamp.py').write_text('tampered by reviewer\n')
             return super().turn(tid,text,selection,**kwargs)
     with pytest.raises(Stop,match='modified its isolated snapshot'):
         review_composed_batch(cfg,batch,runtime_factory=EditingReviewer)
