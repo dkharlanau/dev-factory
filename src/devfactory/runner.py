@@ -6,7 +6,7 @@ import signal
 import time
 from pathlib import Path
 from .policy import (Stop, Usage, choose_model, check_quota, check_budget, repair_decision, integration_gate, classify,
-                     usage_efficiency)
+                     usage_efficiency, scopes_overlap)
 from .repository import (snapshot, git, create_worktree, changed, fingerprint, commit_owned, GitHub, review_snapshot, trigger_snapshot)
 from .runtime import Runtime
 from .state import Store, digest, atomic_json, TERMINAL
@@ -51,13 +51,6 @@ def validate_scope(worktree, base, allowed):
         if any(x in n.lower() for x in ('.env','auth.json','factory.local.toml')):
             raise Stop('BLOCKED_SCOPE','Sensitive/policy file changed')
     return names
-
-
-def scopes_overlap(left, right):
-    def pair(a,b):
-        a,b=a.rstrip('/'),b.rstrip('/')
-        return a==b or a.startswith(b+'/') or b.startswith(a+'/')
-    return any(pair(a,b) for a in left for b in right)
 
 
 def role_usage(turns):

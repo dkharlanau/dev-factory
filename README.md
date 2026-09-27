@@ -168,6 +168,13 @@ keeps per-role attribution unknown. Automatic Factory early compaction is unsupp
 `context.manual_compaction=true` is rejected. The explicit manual adapter is available
 for controlled diagnostics; native autocompaction remains the execution policy.
 
+Experimental batch composition is implemented as a deterministic local primitive on
+the stacked batch branch: only already-reviewed `READY_LOCAL` slices with the same
+base and disjoint scopes can be composed. It makes no model or remote calls, validates
+reviewed fingerprints before applying exact tracked/untracked deltas, and writes an
+idempotent composition receipt. Combined final validation/review/PR integration remains
+a separate gate; composition alone is never release evidence.
+
 Remote integration is disabled; no automatic merge/deploy exists. Optional draft
 PR integration needs explicit owner policy plus current trigger/spend/restriction
 approval, exact reviewed state and passed local checks. A dedicated private fixture

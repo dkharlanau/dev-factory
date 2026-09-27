@@ -162,23 +162,34 @@ class GitHub:
         raise Stop('BLOCKED_GITHUB',f'PR creation not confirmed (exit {result.returncode}); resume to reconcile')
 
 
+def apply_delta(source, destination, base):
+    """Apply exact tracked/untracked source delta to an existing checkout."""
+    import shutil
+    source,destination=Path(source),Path(destination)
+    patch = command(['git','-C',str(source),'diff','--binary',base]).stdout
+    if patch:
+        r = subprocess.run(['git','-C',str(destination),'apply','--binary','-'],
+                           input=patch,text=True,capture_output=True)
+        if r.returncode:
+            raise Stop('BLOCKED_RECONCILIATION','Could not apply reviewed delta')
+    for n in git(source,'ls-files','--others','--exclude-standard').splitlines():
+        src,dst=source/n,destination/n
+        if src.is_symlink(): raise Stop('NATIVE_HANDOFF','Untracked symlink requires owner review')
+        if dst.exists() or dst.is_symlink():
+            raise Stop('BLOCKED_RECONCILIATION','Untracked batch path already exists: '+n)
+        dst.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(src,dst)
+    return changed(destination,base)
+
+
 def review_snapshot(source, destination, base):
     """Isolated exact source snapshot; writable test scratch without builder access."""
-    import shutil
     destination = Path(destination)
     if destination.exists():
         raise Stop('BLOCKED_RECONCILIATION','Review snapshot already exists; use a new identity')
     command(['git','-c','core.hooksPath=/dev/null','clone','--quiet','--no-hardlinks','--no-checkout',str(source),str(destination)])
     git(destination,'checkout','--detach',base)
-    patch = command(['git','-C',str(source),'diff','--binary',base]).stdout
-    if patch:
-        r = subprocess.run(['git','-C',str(destination),'apply','--binary','-'],input=patch,text=True,capture_output=True)
-        if r.returncode: raise Stop('BLOCKED_RECONCILIATION','Could not materialize review diff')
-    for n in git(source,'ls-files','--others','--exclude-standard').splitlines():
-        src,dst=Path(source)/n,destination/n
-        if src.is_symlink(): raise Stop('NATIVE_HANDOFF','Untracked symlink requires owner review')
-        dst.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copy2(src,dst)
+    apply_delta(source,destination,base)
     # Preserve gitignored validation scratch as scratch only; no node_modules copy.
     return destination
 

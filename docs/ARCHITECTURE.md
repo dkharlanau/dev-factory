@@ -60,6 +60,13 @@ No classifier model is required in this MVP. Named validation commands come excl
 from owner configuration, never issues or model output. Untrusted task input uses the
 SDK's supported tool-output authority (`ExternalMessage` wire representation).
 
+Batch composition is a separate deterministic layer over completed reviewed slices.
+It requires one exact base and pairwise-disjoint scopes, rechecks each reviewed
+fingerprint, applies exact tracked/untracked deltas into a new Factory-owned worktree,
+and records an idempotent composition receipt. It performs no model or remote call.
+A composed worktree is not ready for integration until combined final validation and a
+fresh integration review are implemented and pass.
+
 Remote integration is off. The opt-in adapter supports draft PR creation with
 read-before-retry reconciliation; it has only offline/simulated GitHub write tests.
 MVP code refuses automatic merge/deploy. The parent skill attaches any resulting PR

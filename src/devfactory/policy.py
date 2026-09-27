@@ -84,6 +84,13 @@ def classify(task, high_risk_paths):
     return "standard", risk
 
 
+def scopes_overlap(left, right):
+    def pair(a,b):
+        a,b=a.rstrip('/'),b.rstrip('/')
+        return a==b or a.startswith(b+'/') or b.startswith(a+'/')
+    return any(pair(a,b) for a in left for b in right)
+
+
 def check_quota(snapshot, budget):
     if not snapshot:
         raise Stop("PAUSED_QUOTA", "Account quota unknown; new turns disabled")
