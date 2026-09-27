@@ -29,3 +29,10 @@ native = ["npm", "run", "desktop:build", "--", "--no-bundle"]
 # [profiles.fast]
 # models = ["gpt-6-luna", "gpt-6-sol", "native"]
 # effort = "low"
+
+
+# Optional deferred native capability routes. Factory child workers keep plugins/MCP disabled;
+# the parent Codex skill can use the matching already-installed plugin after NATIVE_HANDOFF.
+# [projects.voice-lab.capability_routes.github]
+# kind = "plugin"
+# name = "GitHub"

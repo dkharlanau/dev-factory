@@ -206,28 +206,33 @@ def test_ambiguous_pr_creation_reconciles_before_retry(tmp_path,monkeypatch):
     assert len(calls)==1
 
 
-def test_queue_two_independent_tasks(cfg):
+def test_microbatch_runs_two_compatible_tasks_once(cfg):
     repo=Path(cfg['projects']['demo']['path'])
     from devfactory.fixture import TASK
-    t=copy.deepcopy(TASK);t.update(id='second',priority=2,description='Create bounded independent note.',
-                                   acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
-    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
-    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second independent task')
+    task=copy.deepcopy(TASK);task.update(id='second',priority=2,description='Create bounded independent note.',
+                                       acceptance='Create second.txt.',paths=['second.txt'],checks=['note'])
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(task)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Second compatible task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
     cfg['projects']['demo']['checks']['note']=[os.sys.executable,'-c',
         'from pathlib import Path; assert Path("second.txt").read_text()=="fixture change\\n"']
     cfg['projects']['demo']['checks']['pass']=[os.sys.executable,'-c','pass']
     cfg['projects']['demo']['final_checks']=['pass']
-    cfg['budget']['max_turns']=2
-    cfg['budget']['max_queue_turns']=4
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         results=runner.run('demo',max_tasks=2)
-        assert len(results)==2 and all(r['state']=='READY_LOCAL' for r in results)
-        assert len({r['data']['worktree'] for r in results})==2
-        assert Path(results[1]['data']['worktree'],'second.txt').read_text()=='fixture change\n'
+        assert len(results)==1 and results[0]['state']=='READY_LOCAL'
+        d=results[0]['data']
+        assert d['task_ids']==['clamp-v1','second']
+        assert len(FakeRuntime.turns)==2
+        assert Path(d['worktree'],'second.txt').read_text()=='fixture change\n'
+        assert [x['check'] for x in d['tests']]==['unit','note','pass']
+        assert all(x['log'] is None for x in d['tests'])
+        turns=len(FakeRuntime.turns)
+        again=runner.run('demo',max_tasks=1)
+        assert again[0]['state']=='EXISTING_COMPLETION'
+        assert len(FakeRuntime.turns)==turns
     finally:runner.close()
-
 
 def test_new_run_skips_existing_completion_and_continues_backlog(cfg):
     repo=Path(cfg['projects']['demo']['path'])
@@ -252,22 +257,21 @@ def test_new_run_skips_existing_completion_and_continues_backlog(cfg):
     finally: runner.close()
 
 
-def test_queue_overlap_hands_off_before_second_model_turn(cfg):
+def test_related_overlap_is_batched_instead_of_split(cfg):
     repo=Path(cfg['projects']['demo']['path'])
     from devfactory.fixture import TASK
-    t=copy.deepcopy(TASK);t['id']='overlap';t['priority']=2
-    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(t)+'\n```\n')
-    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Overlapping task')
+    task=copy.deepcopy(TASK);task['id']='overlap';task['priority']=2
+    with (repo/'BACKLOG.md').open('a') as f:f.write('\n```factory-task\n'+json.dumps(task)+'\n```\n')
+    git(repo,'add','BACKLOG.md');git(repo,'-c','user.name=Fixture','-c','user.email=f@localhost','commit','-qm','Overlapping compatible task')
     cfg['projects']['demo']['base_sha']=git(repo,'rev-parse','HEAD')
     runner=Runner(cfg,runtime_factory=FakeRuntime,emit=lambda _:None)
     try:
         results=runner.run('demo',max_tasks=2)
-        assert results[0]['state']=='READY_LOCAL'
-        assert results[1]['state']=='NATIVE_HANDOFF'
-        assert 'overlaps' in results[1]['reason']
+        assert len(results)==1 and results[0]['state']=='READY_LOCAL'
+        assert results[0]['data']['task_ids']==['clamp-v1','overlap']
         assert len(FakeRuntime.turns)==2
+        assert [x['check'] for x in results[0]['data']['tests']]==['unit']
     finally:runner.close()
-
 
 def test_scope_overlap_detects_parent_child_paths():
     from devfactory.runner import scopes_overlap

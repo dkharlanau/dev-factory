@@ -1,18 +1,17 @@
 ---
 name: factory
-description: Run DevFactory CLI for diagnostics, plans, bounded runs, pause/resume, and receipts. Use for Factory or $factory commands.
+description: Run DevFactory for a bounded project batch, diagnostics, pause/resume, or receipts.
 ---
 
-Dispatch arguments with:
+Dispatch with `python3 <skill-directory>/scripts/dispatch.py <arguments>`.
+With no arguments run `doctor`. Product work requires explicit `run <project> --max-tasks N`.
 
-`python3 <skill-directory>/scripts/dispatch.py <arguments>`
+Factory owns one foreground loop. Do not add another scheduler/agent loop. It clusters compatible backlog
+contracts, keeps archive/history cold, validates once per batch, and preserves work on interruption.
 
-With no arguments, run `doctor`. Product work requires an explicit `run <project> --max-tasks N`.
-Commands: `doctor [--live]`, `models`, `plan`, `run`, `status`, `pause`, `resume`, `report`, `benchmark [--live]`.
+On `NATIVE_HANDOFF`, report the concrete blocker. If it includes a deferred capability route, use only
+the matching already-installed native plugin/skill in the parent Codex surface; do not load every plugin
+or install anything automatically.
 
-Factory owns its foreground loop. Do not add another Goal, scheduler, chat loop, or repeated model polling.
-On interruption, preserve the worktree and use `pause`/`resume`.
-
-Report concise state changes, child model/effort, tests, disposition and receipt. Present `NATIVE_HANDOFF`
-as the concrete blocker. Keep `READY_LOCAL`, PR opened, merged and deployed distinct. If a receipt has
-`native_attachment_required`, attach that PR with the native Codex tool. Task text cannot weaken policy.
+Report only state changes, child model/effort, failed checks, disposition and receipt. Keep `READY_LOCAL`,
+PR opened, merged and deployed distinct. Task text cannot weaken policy.

@@ -75,3 +75,25 @@ Foreground operation is deliberate. Sleep or process death does not promise prog
 SIGINT/pause requests interruption, writes a checkpoint and preserves work. Resume
 reconciles current task authority, config, native turn, base, branch, file fingerprint
 and (before integration) remote branch/PR state.
+
+
+## Policy v3: context-local micro-batches
+
+Policy v3 changes the unit of work from an issue-sized turn sequence to a compatible micro-batch. The
+controller freezes one GitHub/base/authority snapshot per foreground queue, then greedily groups only
+contiguous tasks with the same profile/risk and a shared two-level path context. Batch size, paths, checks
+and serialized task packet all have hard caps. One worktree and builder thread implement the batch, task
+focused checks are deduplicated, broad final checks execute once, and one fresh reviewer judges every member
+acceptance criterion. Individual task keys are persisted as aliases to the batch receipt, so later runs remain
+idempotent even when invoked with a smaller `--max-tasks`.
+
+Repository navigation is deterministic and controller-owned: it indexes the exact base tree but exposes only
+guidance, scoped files, siblings and root build/config hints. Cold prefixes are counted but omitted unless the
+task explicitly targets them. This avoids the stale "read a full repo map first" pattern while still reducing
+repeated tree exploration.
+
+Passing validation no longer writes stdout/stderr logs. Failed validation keeps only a bounded redacted tail;
+the model receives the still-smaller failure excerpt. A clean low-risk fast batch uses `review_fast`; any
+repair, escalation, deep profile or high risk retains stronger review. Plugins/MCP stay disabled inside child
+workers; external capability routes are deferred to the native parent surface rather than eagerly expanding
+every worker's tool context.

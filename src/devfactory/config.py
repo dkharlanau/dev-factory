@@ -44,6 +44,18 @@ def load(root: Path, local: Path | None = None):
         raise Stop("BLOCKED_POLICY", "Execution limits must be positive")
     if not isinstance(b.get("finish_started_task"), bool):
         raise Stop("BLOCKED_POLICY", "finish_started_task must be boolean")
+    batch=config.get("batching",{})
+    if not isinstance(batch.get("enabled"),bool) or not 1 <= batch.get("max_tasks",0) <= 10:
+        raise Stop("BLOCKED_POLICY", "Batching must be boolean with max_tasks 1..10")
+    if not 1 <= batch.get("max_paths",0) <= 100 or not 1 <= batch.get("max_checks",0) <= 20:
+        raise Stop("BLOCKED_POLICY", "Batch path/check limits are invalid")
+    if not 1000 <= batch.get("max_packet_bytes",0) <= 100000:
+        raise Stop("BLOCKED_POLICY", "Batch packet byte limit is invalid")
+    ctx=config["context"]
+    if not 1 <= ctx.get("navigation_files",0) <= 200 or not 1000 <= ctx.get("failure_log_bytes",0) <= 100000:
+        raise Stop("BLOCKED_POLICY", "Context navigation/log limits are invalid")
+    if not isinstance(ctx.get("cold_paths"),list) or not all(isinstance(x,str) and x for x in ctx["cold_paths"]):
+        raise Stop("BLOCKED_POLICY", "cold_paths must be a list of path prefixes")
     for name, profile in config["profiles"].items():
         models = profile.get("models")
         if models is not None and (not isinstance(models, list) or not models or

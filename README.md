@@ -1,15 +1,16 @@
 # DevFactory
 
 A local foreground control layer over the official Codex Python SDK. It selects
-verified model/effort profiles, runs one bounded task at a time, preserves work,
-and leaves inspectable test, review and usage receipts. Models run remotely;
+verified model/effort profiles, clusters compatible backlog contracts into bounded
+micro-batches, preserves work, and leaves compact test, review and usage receipts. Models run remotely;
 Git, builds, tests and the supervisor run on your Mac.
 
 **Evaluated control layer, with a new cost-aware routing policy that still requires
 live comparison.** Five earlier paired tasks passed behavioral checks in both workflows;
 the previous 150k soft gate allowed only 2/5 Factory cycles to reach reviewed completion.
-Version 2 keeps native autocompaction, uses live-catalog model ladders, delta repair
-packets and staged validation, and lets a started task finish its bounded quality gate.
+Version 3 keeps native autocompaction and live-catalog routing, adds one-snapshot
+micro-batching, task-local repository navigation, failure-only logs, delta repair
+packets and staged validation, and lets a started batch finish its bounded quality gate.
 See the [evaluation](docs/benchmarks/RESULTS.md). Product execution still requires an
 explicit command.
 
@@ -206,3 +207,21 @@ python3 scripts/uninstall.py
 Uninstall removes only the marked local virtual environment. Source (including
 repo skill), receipts, product work and worktrees remain recoverable. No global
 Codex setup is removed. Do not delete `.factory/worktrees` as routine cleanup.
+
+
+## Lean batch policy (v3)
+
+A foreground `run` reads GitHub/base/backlog authority once, freezes that planning snapshot, and groups
+only contiguous compatible tasks that share a context root, routing profile and risk class. Defaults cap a
+micro-batch at 4 tasks, 24 declared paths, 6 focused checks and a 12 KB model packet. Remote PR integration
+forces single-task mode so exact integration approvals remain task-bound.
+
+The worker receives a small task-local file registry, not a whole-repository map. Historical benchmark data,
+receipts, archives and generated output are cold by default and do not enter that navigation capsule unless
+the task explicitly scopes them. Successful test stdout/stderr is discarded; only failed checks receive a
+bounded redacted local log plus the smaller repair excerpt. Compatible task checks are deduplicated and broad
+final checks run once for the whole batch. Strongly verified low-risk batches use the fast review profile;
+repairs, high risk and deep work still promote review strength.
+
+Installed plugins remain deferred in child workers. Unsupported external capabilities are returned as an
+explicit native capability route instead of loading every tool definition into every coding turn.
