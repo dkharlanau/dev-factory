@@ -201,3 +201,16 @@ def review_composed_batch(config, composition, *, runtime_factory=Runtime):
              'usage':usage.aggregate(),'model_turns':1,'packet_utf8_bytes':len(raw.encode())}
         atomic_json(receipt,out)
         return out
+
+
+
+def load_composition(state_dir, batch_id):
+    if not isinstance(batch_id,str) or len(batch_id)!=16 or any(c not in '0123456789abcdef' for c in batch_id):
+        raise Stop('BLOCKED_BATCH','Invalid batch id')
+    path=Path(state_dir).resolve()/'batches'/batch_id/'composition.json'
+    if not path.is_file():
+        raise Stop('NOT_FOUND','Batch composition receipt not found')
+    value=json.loads(path.read_text())
+    if value.get('batch_id')!=batch_id or value.get('state')!='COMPOSED_LOCAL':
+        raise Stop('BLOCKED_RECONCILIATION','Invalid batch composition receipt')
+    return value

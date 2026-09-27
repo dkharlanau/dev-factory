@@ -49,7 +49,8 @@ def test_manifest_and_skill():
     assert 'name: factory' in skill.read_text()
 
 @pytest.mark.parametrize('argv',[['doctor'],['doctor','--live'],['models'],['plan','voice-lab'],
- ['run','demo','--max-tasks','1'],['status'],['pause','id'],['resume','id'],['report'],['benchmark'],['benchmark','--live']])
+ ['run','demo','--max-tasks','1'],['batch','a','b'],['batch-review','0123456789abcdef'],
+ ['status'],['pause','id'],['resume','id'],['report'],['benchmark'],['benchmark','--live']])
 def test_cli_schema(argv): assert parser().parse_args(argv).command==argv[0]
 
 

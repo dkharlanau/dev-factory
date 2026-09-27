@@ -53,6 +53,9 @@ fixture. Both commands consume your Codex allowance on their first run.
 ./factory report
 ./factory pause <run-id>
 ./factory resume <run-id>
+# Explicit quality-preserving batch flow:
+./factory batch <run-id> <run-id> [...]
+./factory batch-review <batch-id>
 ```
 
 Run in the foreground. Ctrl+C requests a supported native interrupt and preserves
@@ -172,8 +175,10 @@ Experimental batch composition is implemented as a deterministic local primitive
 the stacked batch branch: only already-reviewed `READY_LOCAL` slices with the same
 base and disjoint scopes can be composed. It makes no model or remote calls, validates
 reviewed fingerprints before applying exact tracked/untracked deltas, and writes an
-idempotent composition receipt. A second local gate runs the configured broad final checks once on the combined
-worktree and then performs one fresh integration review over every child acceptance.
+idempotent composition receipt. Use `factory batch RUN_ID...` to compose reviewed slices with zero model turns, then
+`factory batch-review BATCH_ID` to explicitly authorize the combined quality gate.
+The second command runs configured broad final checks once on the combined worktree
+and then performs one fresh integration review over every child acceptance.
 It is deliberately non-repairing: any combined validation/review defect blocks the
 batch instead of spending more model turns or mutating reviewed slices. Remote batch
 PR integration remains separate; composition alone is never release evidence.

@@ -31,6 +31,8 @@ def parser():
     sub.add_parser('status'); sub.add_parser('report')
     for name in ('pause','resume'):
         sub.add_parser(name).add_argument('run_id')
+    batch=sub.add_parser('batch'); batch.add_argument('run_ids',nargs='+')
+    sub.add_parser('batch-review').add_argument('batch_id')
     bench=sub.add_parser('benchmark'); bench.add_argument('--live',action='store_true')
     sub.add_parser('schema')
     return p
@@ -44,7 +46,8 @@ def main(argv=None):
         config=load(args.root,args.config)
         if args.command=='schema':
             result={'version':'1','commands':['doctor [--live]','models','plan <project>',
-                    'run <project> [--max-tasks N]','status','pause <run-id>','resume <run-id>',
+                    'run <project> [--max-tasks N]','batch <run-id> <run-id> [...]',
+                    'batch-review <batch-id>','status','pause <run-id>','resume <run-id>',
                     'report','benchmark [--live]'],'model_profiles':list(config['profiles']),
                     'global_worker_limit':1,'merge':False,'deploy':False,'background':False}
         elif args.command in ('doctor','models'):
@@ -82,6 +85,22 @@ def main(argv=None):
             runner=Runner(config,emit=lambda s:print(s,file=sys.stderr,flush=True))
             try: result=runner.resume(args.run_id)
             finally: runner.close()
+        elif args.command=='batch':
+            if len(args.run_ids)<2:
+                raise Stop('BLOCKED_BATCH','batch requires at least two run ids')
+            store=Store(config['state_dir'])
+            try: runs=[store.get(rid) for rid in args.run_ids]
+            finally: store.close()
+            from .batch import compose_reviewed_slices
+            result=compose_reviewed_slices(runs,config['state_dir'])
+        elif args.command=='batch-review':
+            from .batch import load_composition,review_composed_batch
+            composition=load_composition(config['state_dir'],args.batch_id)
+            project=composition['project']
+            if project in ('demo','smoke'):
+                from .fixture import prepare
+                config=prepare(config,project)
+            result=review_composed_batch(config,composition)
         elif args.command=='benchmark':
             from .benchmark import benchmark
             result=benchmark(config,live=args.live)
@@ -96,9 +115,10 @@ def main(argv=None):
                              'worktree':r['data'].get('worktree'),'phase':r['data'].get('phase')} for r in store.all()]
             finally: store.close()
         print(json.dumps(result,indent=2,default=str))
-        if args.command in ('run','resume') or (args.command=='doctor' and args.live):
+        if args.command in ('run','resume','batch-review') or (args.command=='doctor' and args.live):
             values=result.get('live',[]) if args.command=='doctor' else (result if isinstance(result,list) else [result])
-            if any(x.get('state') not in ('READY_LOCAL','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE') for x in values):
+            ok=('READY_LOCAL','BATCH_READY_LOCAL','PR_OPENED','PR_READY','EXISTING_COMPLETION','IDLE')
+            if any(x.get('state') not in ok for x in values):
                 return 2
         return 0
     except Stop as e:
